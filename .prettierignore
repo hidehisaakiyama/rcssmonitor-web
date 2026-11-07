@@ -1,0 +1,10 @@
+dist/
+dist-single/
+coverage/
+test-results/
+playwright-report/
+test/fixtures/
+spike/
+LICENSE
+# Hand-formatted documents (Japanese tables would be re-aligned).
+*.md

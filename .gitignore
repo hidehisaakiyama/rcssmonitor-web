@@ -1,0 +1,10 @@
+node_modules/
+dist/
+dist-single/
+coverage/
+test-results/
+playwright-report/
+*.log
+.DS_Store
+# Full-length game logs for local performance tests; never committed.
+test/fixtures/full/

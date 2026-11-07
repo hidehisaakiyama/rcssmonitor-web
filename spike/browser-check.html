@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Browser Check</title>
+<style>
+  :root { --bg: #fff; --fg: #1d1d1f; --muted: #6e6e73; --ok: #1a7f37; --ng: #cf222e; --line: #d0d7de; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #161618; --fg: #e6e6e6; --muted: #9a9aa0; --ok: #3fb950; --ng: #f85149; --line: #3a3a3f; }
+  }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--fg); font: 14px/1.5 system-ui, sans-serif; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  p { color: var(--muted); margin: 0 0 12px; }
+  label { display: block; margin-bottom: 8px; }
+  input[type=text] { width: 100%; max-width: 640px; box-sizing: border-box; font: inherit; padding: 4px 6px; }
+  table { border-collapse: collapse; margin: 12px 0; width: 100%; max-width: 960px; }
+  td, th { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; word-break: break-all; }
+  .ok { color: var(--ok); font-weight: 600; }
+  .ng { color: var(--ng); font-weight: 600; }
+  pre { white-space: pre-wrap; word-break: break-all; border: 1px solid var(--line); padding: 8px; max-width: 960px; }
+</style>
+</head>
+<body>
+<h1>rcssmonitor-web browser check</h1>
+<p>Checks what the planned monitor needs from the browser when this page is opened from file://, http:// or https://.
+Query parameters: <code>targets</code> (comma-separated WebSocket URLs), <code>auto=1</code>, <code>report</code> (URL to POST the results to).</p>
+<label>WebSocket targets (comma-separated)
+  <input id="targets" type="text" value="ws://localhost:6080/monitor">
+</label>
+<button id="run" type="button">Run checks</button>
+<table id="table"><thead><tr><th>Check</th><th>Result</th><th>Detail</th></tr></thead><tbody></tbody></table>
+<pre id="result"></pre>
+<script>
+'use strict';
+const GZIP_SAMPLE = 'H4sIAAAAAAAC/9NIySwuyMzLLFEoSy0qzszPU9A11FQoSi4uzs0HiuYX6ZanJimkV2UWKCRnpCZnAwCneSzRMAAAAA==';
+const GZIP_TEXT = '(dispinit version -1) rcssmonitor-web gzip check';
+
+function withTimeout(promise, ms, what) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(what + ': timed out after ' + ms + ' ms')), ms)),
+  ]);
+}
+
+async function gunzipBase64(b64) {
+  const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+  return await new Response(stream).text();
+}
+
+async function checkLocalStorage() {
+  const key = 'rcssmonitor-web-check';
+  localStorage.setItem(key, 'ok');
+  const v = localStorage.getItem(key);
+  localStorage.removeItem(key);
+  if (v !== 'ok') throw new Error('read back ' + v);
+  return 'read/write works';
+}
+
+async function checkDecompression() {
+  if (typeof DecompressionStream === 'undefined') throw new Error('DecompressionStream is undefined');
+  const text = await gunzipBase64(GZIP_SAMPLE);
+  if (text !== GZIP_TEXT) throw new Error('unexpected text: ' + text);
+  return 'gzip decoded';
+}
+
+function workerSource(module) {
+  // The worker answers with its own environment and a gzip round trip.
+  return `
+    const GZIP_SAMPLE = ${JSON.stringify(GZIP_SAMPLE)};
+    ${gunzipBase64.toString()}
+    self.onmessage = async () => {
+      let gz = 'DecompressionStream is undefined';
+      try { if (typeof DecompressionStream !== 'undefined') gz = await gunzipBase64(GZIP_SAMPLE); }
+      catch (e) { gz = 'error: ' + e; }
+      self.postMessage({ module: ${module}, origin: self.origin, gz });
+    };`;
+}
+
+async function checkWorker(module) {
+  const url = URL.createObjectURL(new Blob([workerSource(module)], { type: 'text/javascript' }));
+  try {
+    const worker = new Worker(url, module ? { type: 'module' } : undefined);
+    const reply = await withTimeout(new Promise((resolve, reject) => {
+      worker.onmessage = (e) => resolve(e.data);
+      worker.onerror = (e) => reject(new Error('worker error: ' + (e.message || 'unknown')));
+      worker.postMessage('go');
+    }), 3000, 'worker');
+    worker.terminate();
+    if (reply.gz !== GZIP_TEXT) throw new Error('worker started, but gzip in worker failed: ' + reply.gz);
+    return 'worker origin ' + reply.origin + '; gzip in worker works';
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+function checkWebSocket(target) {
+  return new Promise((resolve, reject) => {
+    let ws;
+    try {
+      ws = new WebSocket(target);
+    } catch (e) {
+      reject(new Error('constructor threw ' + e.name + ': ' + e.message));
+      return;
+    }
+    const seen = [];
+    let playerTypes = 0;
+    let opened = false;
+    let finished = false;
+    const finish = (ok, detail) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      try { if (ws.readyState === WebSocket.OPEN) ws.send('(dispbye)'); } catch (e) { /* ignore */ }
+      try { ws.close(); } catch (e) { /* ignore */ }
+      (ok ? resolve : reject)(ok ? detail : new Error(detail));
+    };
+    const timer = setTimeout(() => finish(false, (opened ? 'opened, ' : 'not opened, ')
+      + 'no show within 5 s; received: ' + JSON.stringify(seen)), 5000);
+    ws.onopen = () => { opened = true; ws.send('(dispinit version -1)'); };
+    ws.onerror = () => { /* the close event carries the details */ };
+    ws.onclose = (e) => finish(false, 'closed before a show arrived: code ' + e.code
+      + (e.reason ? ' reason ' + e.reason : '') + '; received: ' + JSON.stringify(seen));
+    ws.onmessage = (e) => {
+      const data = String(e.data);
+      if (!data.startsWith('{')) { finish(false, 'text reply: ' + data.slice(0, 80)); return; }
+      const key = Object.keys(JSON.parse(data))[0];
+      if (key === 'player_type') playerTypes += 1;
+      else seen.push(key);
+      if (key === 'show') {
+        const show = JSON.parse(data).show;
+        finish(true, 'received ' + seen.join(', ') + ' (+' + playerTypes + ' player_type); show time '
+          + show.time + ', mode ' + show.mode + ', ' + show.players.length + ' players');
+      }
+    };
+  });
+}
+
+function environment() {
+  return {
+    href: location.href.split('?')[0],
+    protocol: location.protocol,
+    origin: self.origin,
+    isSecureContext: self.isSecureContext,
+    userAgent: navigator.userAgent,
+  };
+}
+
+async function runAll(targets) {
+  const checks = [
+    ['localStorage', checkLocalStorage],
+    ['DecompressionStream', checkDecompression],
+    ['Blob worker (classic)', () => checkWorker(false)],
+    ['Blob worker (module)', () => checkWorker(true)],
+    ...targets.map((t) => ['WebSocket ' + t, () => checkWebSocket(t)]),
+  ];
+  const results = [];
+  const tbody = document.querySelector('#table tbody');
+  tbody.textContent = '';
+  for (const [name, fn] of checks) {
+    let ok = false;
+    let detail;
+    try { detail = await fn(); ok = true; } catch (e) { detail = String(e && e.message ? e.message : e); }
+    results.push({ name, ok, detail });
+    const tr = document.createElement('tr');
+    for (const [text, cls] of [[name], [ok ? 'OK' : 'NG', ok ? 'ok' : 'ng'], [detail]]) {
+      const td = document.createElement('td');
+      td.textContent = text;
+      if (cls) td.className = cls;
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+  const report = { environment: environment(), results };
+  document.getElementById('result').textContent = JSON.stringify(report, null, 2);
+  return report;
+}
+
+const params = new URLSearchParams(location.search);
+if (params.has('targets')) document.getElementById('targets').value = params.get('targets');
+const readTargets = () => document.getElementById('targets').value.split(',').map((s) => s.trim()).filter(Boolean);
+document.getElementById('run').addEventListener('click', () => runAll(readTargets()));
+
+if (params.get('auto') === '1') {
+  runAll(readTargets()).then((report) => {
+    console.log('BROWSER-CHECK-REPORT ' + JSON.stringify(report));
+    const to = params.get('report');
+    if (to) {
+      fetch(to, { method: 'POST', mode: 'no-cors', body: JSON.stringify(report) })
+        .catch(() => { document.title = 'report failed'; });
+    }
+    document.title = 'done';
+  });
+}
+</script>
+</body>
+</html>
