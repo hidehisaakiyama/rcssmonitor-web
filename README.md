@@ -2,7 +2,7 @@
 
 A browser-based monitor for the [RoboCup Soccer Simulator](https://github.com/rcsoccersim) 2D server (rcssserver).
 
-**Status: early development (Phase 3).** Game logs can be opened (button, Ctrl+O or drag and drop) and played on a 2D field drawn like rcssmonitor, with rcssmonitor's player controls. The live connection and the settings come next.
+**Status: early development (Phase 4).** Game logs can be opened (button, Ctrl+O or drag and drop) and played on a 2D field drawn like rcssmonitor, with rcssmonitor's player controls. Live games can be watched by connecting to rcssserver over WebSocket, with the referee commands of rcssmonitor (kick off, drop ball, free kicks, cards, play mode changes). The settings and the menus come next.
 
 ## Goals
 
@@ -26,7 +26,19 @@ A rcssserver build with WebSocket support (the asio-based 19.x series). The WebS
 rcssserver server::ws_port=6080
 ```
 
-If `server::ws_allowed_origins` is set, it must include the origin of the page. A page opened from disk sends `Origin: null`.
+If `server::ws_allowed_origins` is set, it must include the origin of the page. A page opened from disk sends `Origin: null` (`"server::ws_allowed_origins='null'"`).
+
+Changing the play mode from the monitor needs the coach mode (`server::coach=true` or `server::coach_w_referee=true`).
+
+## Connecting
+
+Use the connect button (host, port and path; the default is `localhost:6080/monitor`), or Ctrl+C to connect again to the last server. URL parameters connect at start-up, like rcssmonitor's command line options:
+
+```
+rcssmonitor-web.html?connect=1&host=192.168.0.10&port=6080&path=/monitor&auto_reconnect_mode=on&auto_reconnect_wait=5
+```
+
+While connected, the view follows the newest frame (live mode, Ctrl+L); step back to look at earlier frames. The referee commands are in the pop-up menu of the field (right click) and on the tool bar (kick off, Ctrl+K).
 
 ## Development
 
@@ -43,7 +55,10 @@ npm run typecheck     # TypeScript
 npm test              # unit tests (Vitest)
 npx playwright install chromium firefox  # once, for the end-to-end tests
 npm run test:e2e      # end-to-end tests on the single-file build (run build:single first)
+npm run replay-server -- test/fixtures/json-sample.rcg.gz  # a stand-in server on port 6080
 ```
+
+The replay server plays a game log to monitors as rcssserver does with `server::ws_port`, and prints the commands it receives. See [tools/replay-server/README.md](tools/replay-server/README.md).
 
 See [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md) (Japanese) for the plan, [docs/protocol.md](docs/protocol.md) for the protocol notes, and [docs/parity.md](docs/parity.md) for the feature comparison with rcssmonitor.
 

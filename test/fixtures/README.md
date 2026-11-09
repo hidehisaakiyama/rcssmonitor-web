@@ -52,7 +52,7 @@ asio 版 rcssserver 19.0.0 (`feature/asio-migration`) を `server::ws_port` だ�
 - server_param、player_param、player_type 18 件、show 2 件 (before_kick_off、チーム未接続)。
 - `ws_port` (16081) と `random_seed` はこの起動のときの値。
 
-取得するときの注意: このサーバは環境変数 `HOME` を変えても、実際のホームの `~/.rcssserver/` に設定ファイル (`server.conf`、`player.conf`、`CSVSaver.conf`) がなければ作る。
+取得するときの注意: このサーバは環境変数 `HOME` を変えても、実際のホームの `~/.rcssserver/` に設定ファイル (`server.conf`、`player.conf`、`CSVSaver.conf`) がなければ作る。設定ディレクトリは環境変数 `RCSS_CONF_DIR` で変えられる。
 
 ## fonts/ (テスト用フォント)
 

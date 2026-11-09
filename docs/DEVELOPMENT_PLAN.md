@@ -93,7 +93,7 @@ rcssmonitor-web/
       rcg-text.ts         テキスト v4〜v6 パーサ (parser_v4.cpp の移植)
       rcg.worker.ts       解析 Worker。進捗とフレームをまとめて送る
       live/
-        connection.ts     WebSocket、dispinit、エラー応答、無通信タイムアウト、自動再接続
+        client.ts         WebSocket、dispinit、エラー応答、無通信タイムアウト、自動再接続
         protocol.ts       ライブ JSON メッセージを GameStore に入れる
         commands.ts       審判コマンドの組み立てと検証
     playback/
@@ -404,3 +404,60 @@ asio 版サーバで見つかった問題 (サーバ側で対応を検討する)
 - ツールバーのボタンはクリックしてもフォーカスを取らない。そのため、ボタンを押した後も Space や矢印キーが再生の操作として効く。
 - アプリの結線は `src/ui/app.ts` にまとめた。`main.ts` は起動と E2E 用の入口だけにした。
 - Chromium で Ctrl+O の E2E テストが失敗したことがある。原因は Playwright のファイル選択の横取りが非同期に有効になることで、アプリの不具合ではなかった (テストで 1 回ページとやり取りしてからキーを押す)。
+
+### Phase 4 (2026-11-09)
+
+**完了条件の確認**
+- 擬似サーバに対する E2E テスト (Chromium と Firefox) が通る。対象は次のとおり。
+  - 接続ダイアログでの接続、受信、ライブ追従 (コマ送りで戻り、Ctrl+L で最新に戻る)、キックオフ、切断 (`(dispbye)`)
+  - URL パラメータでの接続、自動再接続、Ctrl+C での再接続
+  - 接続できない (Origin の拒否)、拒否 (`(error no_more_monitor)`)、msg で届くエラー、サーバ側からの切断の表示
+  - 右クリックメニューからの審判コマンド (ドロップボール、フリーキック、カード、Change Playmode) と、未接続や coach モードでないときに項目が無効になること
+- 単体テストで次を確かめた。
+  - コマンドの文字列 (16 倍の丸め、side の符号、unum の検証)、Change Playmode のボール位置の補正 (16 モードすべて)
+  - ライブ受信 (実際のサーバから取ったフィクスチャ、msg の応答、制御文字の入った JSON)
+  - 接続部: 擬似サーバに Node の WebSocket でつなぎ、受信、コマンド、無通信のタイムアウト、拒否、接続の失敗、再接続を確かめた
+  - 擬似サーバの応答と、ログ → ライブ形式 → 受信の往復でフレームが一致すること (フィクスチャ 3 本)
+- 実際の asio 版 rcssserver 19.0.0 (`server::ws_port`、`server::coach_w_referee=true`) に 2 チーム (HELIOS) をつなぎ、単一 HTML を file:// で開いて Chromium と Firefox で確かめた。
+
+| 試験 | 結果 |
+|---|---|
+| 接続、ライブ受信 | 接続できた。チームロゴ (256 × 64) もライブで届いた |
+| キックオフ (Ctrl+K) | kick_off_l から play_on へ |
+| ドロップボール | ボールが右クリックした位置 (10, -4.94) に置かれた |
+| フリーキック (左) | free_kick_l、ボールは (-20.06, 10) |
+| イエローカード / レッドカード | 選手の状態にカードのビットが立った。レッドカードの選手は退場した |
+| Change Playmode | corner_kick_r でボールが (-51.5, 33) へ。back_pass_l (rcssmonitor では送られないもの) でボールが (-36, -20.16) へ |
+| サーバを SIGSTOP で止める | 5.3 秒後に "No response from the server." として切断。Ctrl+C で接続し直せた |
+| サーバの終了 | "Disconnected from the server." を表示。受信したフレームはそのまま見られる |
+| `ws_allowed_origins='http://example.invalid'` | 接続できない旨を表示。サーバのログは `refused: 403 Forbidden (path=/monitor origin=null)` |
+| `ws_allowed_origins='http://example.invalid,null'` | 接続できた |
+| rcssmonitor (Qt 版、ws) との比較 | 同じサーバにつなぎ、キックオフ前の画面を比べた。選手の位置、ロゴ、スコアボードは一致した。違いは、2 枚を撮る間に変わった体の向きと、Phase 2 と同じフォントの字形だけ |
+
+- まだ確かめていないこと: LAN 内の別のマシンからの接続、Pages 版から localhost への接続 (Pages の公開は Phase 5)。
+
+**計画からの変更と、実装で決めたこと**
+- 接続部 `LiveClient` (`src/io/live/client.ts`) は DOM に依存しない。そのため、単体テストで Node の WebSocket から擬似サーバにつないで試せる。
+- 新しい試合のデータ (`GameStore`) は、接続が受け入れられた時点 (最初の JSON メッセージが届いた時点) で作る。
+  - rcssmonitor は接続を始めた時点でデータを消す。
+  - Web 版では、再接続を待つ間も前の試合を見られ、接続に失敗しても開いていたログが残る。
+- 最初のメッセージが JSON でなければ、拒否とみなして切断する。rcssmonitor は `(error` で始まるときだけ切断する。
+- 審判操作の UI は次のようにした。
+  - メニューバーは Phase 5 で作るので、接続、切断、キックオフのボタンはツールバーに置いた。
+  - 右クリックメニューは、接続していないと項目を無効にして理由を示す。rcssmonitor は有効のまま表示して何もしない。
+  - カードのダイアログでは、右クリックした位置から 3 m 以内の選手を最初から選んでおく。rcssmonitor は空欄から選ぶ。
+  - Change Playmode は、server_param の `coach` / `coach_w_referee` が偽なら無効にして理由を示す。rcssmonitor は選んだ後にメッセージボックスを出す。
+- サーバは文字列の制御文字をエスケープしないので、改行などが入ると不正な JSON になる。解析に失敗したときは、制御文字をエスケープして読み直す。
+- Ctrl+C は、文字を選択している間はブラウザのコピーに譲る。
+- 擬似サーバ (`tools/replay-server`) は TypeScript で書き、アプリのパーサを共有する。
+  - コマンドラインからは Vite のモジュールランナー (`runnerImport`) で読み込む。テストからはプロセス内で起動する。
+  - coach モードかどうかは、本物のサーバと同じく server_param の `coach` / `coach_w_referee` で決める。フィクスチャの元の試合では `coach_w_referee` が真だった。
+  - 依存に `ws` 8.22.0 を加えた。最新の 8.22.2 は前日に公開されたばかりだったので避け、公開から 6 週間たった版にした。
+- 実際のサーバで試してわかったことを `docs/protocol.md` に書いた。
+  - ドロップボールはその場で play_on に変わるので、drop_ball の show は届かない。
+  - `(move (ball) …)` の引数は `x y [ang [vx vy]]` だった (以前の記述を直した)。
+  - rcssserver のコマンドラインでは、値の中に空白を入れられない。
+- rcssserver は環境変数 `RCSS_CONF_DIR` で設定ディレクトリを変えられる。手動試験はこれで行い、`~/.rcssserver` には触れていない。
+- `tools/parity/capture.sh` と `compare.mjs` を、ログの代わりにライブのサーバにもつなげるようにした (`ws://HOST:PORT`、`--live HOST:PORT`)。§7 の rcssmonitor との並べての比較に使う。
+- 数値の書式 (printf の `%g` に当たる `formatG`) を `src/core/number-format.ts` に置き、`(move (ball) …)` と選手のラベルで共有した。
+- Phase 5 で確かめること: Ctrl+C、Ctrl+L、Ctrl+K がふだん使うブラウザ (ヘッドレスでないもの) で横取りできるか。

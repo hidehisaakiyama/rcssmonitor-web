@@ -3,6 +3,10 @@
 # its drawing with rcssmonitor-web (see tools/parity/README.md).
 #
 #   tools/parity/capture.sh LOG OUT.png [KEYS]
+#   tools/parity/capture.sh ws://HOST:PORT OUT.png [KEYS]
+#
+# With ws://HOST:PORT instead of a log, rcssmonitor connects to rcssserver
+# (server::ws_port) and the capture is taken 2 seconds after it connects.
 #
 # KEYS are pressed before the capture (see rfb_snapshot.py), e.g. "Right*150,v".
 # rcssmonitor runs on Qt's "vnc" platform plugin with a new, empty HOME, so
@@ -14,7 +18,7 @@
 set -eu
 
 if [ $# -lt 2 ]; then
-  sed -n '2,14p' "$0"
+  sed -n '2,18p' "$0"
   exit 1
 fi
 log=$1
@@ -25,24 +29,40 @@ size=${SIZE:-1000x720}
 port=${PORT:-5911}
 here=$(dirname "$0")
 
+case $log in
+  ws://*)
+    # ws://HOST:PORT
+    server=${log#ws://}
+    set -- --connect --server-transport ws --client-version -1 \
+      --server-host "${server%:*}" --server-port "${server##*:}"
+    ready='Connect to'
+    wait=2
+    ;;
+  *)
+    set -- "$log"
+    ready='opened rcg file'
+    wait=1
+    ;;
+esac
+
 home=$(mktemp -d "${TMPDIR:-/tmp}/rcssmonitor-home.XXXXXX")
 HOME=$home QT_QPA_PLATFORM="vnc:size=$size:port=$port" \
-  "$rcssmonitor" --show-menu-bar off --geometry "$size+0+0" ${RCSSMONITOR_ARGS:-} "$log" \
+  "$rcssmonitor" --show-menu-bar off --geometry "$size+0+0" ${RCSSMONITOR_ARGS:-} "$@" \
   >"$home/rcssmonitor.log" 2>&1 &
 pid=$!
 trap 'kill $pid 2>/dev/null || true; rm -rf "$home"' EXIT
 
-# Wait for the VNC server and for the log to be opened.
+# Wait for the VNC server and for the log to be opened (or the connection).
 i=0
-until grep -q 'opened rcg file' "$home/rcssmonitor.log" 2>/dev/null; do
+until grep -q "$ready" "$home/rcssmonitor.log" 2>/dev/null; do
   i=$((i + 1))
   if [ $i -gt 100 ]; then
     cat "$home/rcssmonitor.log" >&2
-    echo "rcssmonitor did not open the log" >&2
+    echo "rcssmonitor did not start: no \"$ready\"" >&2
     exit 1
   fi
   sleep 0.1
 done
-sleep 1
+sleep $wait
 
 python3 -I "$here/rfb_snapshot.py" 127.0.0.1 "$port" "$out" "$keys"

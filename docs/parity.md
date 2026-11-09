@@ -9,25 +9,28 @@ rcssmonitor (Qt 版) の機能と、rcssmonitor-web での扱いをまとめた�
 
 | 機能 | rcssmonitor | Phase | 状態 | 備考 |
 |---|---|---|---|---|
-| 既定の接続先に接続 (Ctrl+C) | main_window.cpp:295 | 4 | 未着手 | ブラウザのコピーと重なる。Phase 5 でキーを決める |
-| 接続先を指定して接続 (Connect to ...) | connect_dialog.cpp | 4 | 未着手 | host、port、path。トランスポートの選択はない (WebSocket のみ) |
-| 切断 (`(dispbye)`) | main_window.cpp:314 | 4 | 未着手 | |
-| ライブモード (Ctrl+L) | main_window.cpp:330 | 4 | 作業中 | ライブ中も過去に戻れる。ツールバーのボタンと `Playback.setLive()` はある (ログでは末尾へ移る)。受信への追従は Phase 4 |
-| 起動時に自動接続 | options.cpp:218 | 4 | 未着手 | URL パラメータ `connect=1`。既定は接続しない |
-| 無通信 5 秒で切断 | monitor_client.cpp:319-338 | 4 | 未着手 | |
-| 自動再接続と待ち時間 | monitor_client.cpp:345-360 | 4 | 未着手 | |
-| 接続時のエラー応答 (`(error …)`) | monitor_client.cpp:241-253 | 4 | 未着手 | 表示してから切断する |
+| 既定の接続先に接続 (Ctrl+C) | main_window.cpp:295 | 4 | 済 | 前回の接続先に、ダイアログなしで接続する。文字を選択している間はブラウザのコピーに譲る。接続中は何もしない (rcssmonitor と同じ)。キーは Phase 5 で見直す |
+| 接続先を指定して接続 (Connect to ...) | connect_dialog.cpp | 4 | 済 | ツールバーのボタン。host、port、path に加えて自動再接続と待ち時間も指定する。トランスポートの選択はない (WebSocket のみ)。接続先は localStorage に保存する。既定は localhost:6080/monitor |
+| 切断 (`(dispbye)`) | main_window.cpp:314 | 4 | 済 | ツールバーのボタン。ページを閉じたときも `(dispbye)` を送る |
+| ライブモード (Ctrl+L) | main_window.cpp:330 | 4 | 済 | 接続中だけ使える (rcssmonitor と同じ)。ライブ中もコマ送りなどで過去に戻れ、Ctrl+L で最新に戻る |
+| 起動時に自動接続 | options.cpp:218 | 4 | 済 | URL パラメータ `connect=1` (`host`、`port`、`path` も指定できる)。既定は接続しない |
+| 無通信 5 秒で切断 | monitor_client.cpp:319-338 | 4 | 済 | 自動再接続のときは待ち時間の秒数 (rcssmonitor と同じ) |
+| 自動再接続と待ち時間 | monitor_client.cpp:345-360 | 4 | 済 | 接続ダイアログ、または URL パラメータ `auto_reconnect_mode`、`auto_reconnect_wait`。切断の 1 秒後に接続し直す。rcssmonitor と違い、新しい接続が受け入れられるまで前の試合を表示したままにする |
+| 接続時のエラー応答 (`(error …)`) | monitor_client.cpp:241-253 | 4 | 済 | ステータスバーに表示してから切断する。最初のメッセージが JSON でなければ拒否とみなす |
+| 接続できないときの表示 | monitor_client.cpp:302-314 | 4 | 済 | ブラウザは理由を教えないので、`server::ws_port` と `server::ws_allowed_origins` を確かめるよう表示する |
+| `msg` で届く `(error …)` / `(warning …)` の表示 | — | 4 | 済 | rcssmonitor にない。ステータスバーに 5 秒表示する |
 | プロトコル v1〜v5 (UDP / TCP) | monitor_client.cpp:81-93 | — | 対象外 | JSON (`-1`) のみ |
 
 ## 2. 審判操作
 
 | 機能 | rcssmonitor | Phase | 状態 | 備考 |
 |---|---|---|---|---|
-| Kick Off (`(dispstart)`, Ctrl+K) | main_window.cpp:483 | 4 | 未着手 | |
-| Drop Ball (右クリック) | field_canvas.cpp:273 | 4 | 未着手 | `(dispfoul X Y 0)` |
-| Free Kick Left / Right (右クリック) | field_canvas.cpp:273 | 4 | 未着手 | `(dispfoul X Y ±1)` |
-| Yellow / Red Card | main_window.cpp:2166-2267 | 4 | 未着手 | 送信前に unum が 1〜11 かを検証する |
-| Change Playmode (ボール位置の補正つき) | main_window.cpp:2294-2454 | 4 | 未着手 | coach モードが必要。back_pass で何も送られない不具合は直す |
+| Kick Off (`(dispstart)`, Ctrl+K) | main_window.cpp:483 | 4 | 済 | メニューバーができるまではツールバーのボタン |
+| Drop Ball (右クリック) | field_canvas.cpp:273 | 4 | 済 | `(dispfoul X Y 0)`。右クリックした位置 |
+| Free Kick Left / Right (右クリック) | field_canvas.cpp:273 | 4 | 済 | `(dispfoul X Y ±1)` |
+| Yellow / Red Card | main_window.cpp:2166-2267 | 4 | 済 | 右クリックメニューから。ダイアログで選手を選ぶ。右クリックした位置から 3 m 以内の選手をあらかじめ選んでおく (rcssmonitor は空欄)。送信前に unum が 1〜11 かを検証する |
+| Change Playmode (ボール位置の補正つき) | main_window.cpp:2294-2454 | 4 | 済 | 右クリックメニューのサブメニュー (16 モード)。server_param の `coach` / `coach_w_referee` が偽なら無効にして理由を示す。back_pass で何も送られない不具合を直した |
+| 接続していないときの右クリックメニュー | field_canvas.cpp:273 | 4 | 済 | rcssmonitor は項目を有効のまま表示して何もしない。Web 版は項目を無効にして理由を示す |
 | 選手のドラッグ移動 (`dispplayer`) | (未使用) | 将来 | 未着手 | rcssmonitor でも UI がない |
 | 選手の退場 (`dispdiscard`) | (未使用) | — | 対象外 | |
 
@@ -105,7 +108,7 @@ rcssmonitor (Qt 版) の機能と、rcssmonitor-web での扱いをまとめた�
 | メニューバー、ツールバー、ステータスバーの表示切替 | main_window.cpp:529-552 | 5 | 未着手 | |
 | 全画面 (F11、Alt+Enter) | main_window.cpp:561-574 | 5 | 未着手 | Fullscreen API を使う |
 | 設定の保存 (`~/.rcssmonitor.conf`) | options.cpp:333-855 | 5 | 未着手 | localStorage に保存する |
-| コマンドラインオプション | options.cpp:862-1158 | 4〜5 | 未着手 | URL パラメータで代替する |
+| コマンドラインオプション | options.cpp:862-1158 | 4〜5 | 作業中 | URL パラメータで代替する。接続 (`connect`、`host`、`port`、`path`、`auto_reconnect_mode`、`auto_reconnect_wait`) は Phase 4 で済 |
 | Window Style、About Qt | main_window.cpp:577-590, 767-783 | — | 対象外 | Qt 固有 |
 | 終了 (Ctrl+Q) | main_window.cpp:275 | — | 対象外 | |
 
@@ -123,6 +126,6 @@ rcssmonitor (Qt 版) の機能と、rcssmonitor-web での扱いをまとめた�
 | テキスト rcg に `(名前` で始まらない行が 1 行でもあると、ログ全体の読み込みが止まる | rcss/rcg/parser_v4.cpp:95-102, 123-128 | 済 |
 | オフサイドラインが x = 0 とボールの間にしか引かれない (選手の side を列挙値と比べている) | player_painter.cpp:1034, 1061 | 済 |
 | 左のキーパーのキャッチ範囲に右のキーパーの色を使う (同じ比較の誤り) | player_painter.cpp:545, 563 | 済 |
-| Change Playmode の back_pass で何も送られない | main_window.cpp:2394-2429 | 未着手 |
+| Change Playmode の back_pass で何も送られない | main_window.cpp:2394-2429 | 済 |
 | 設定ダイアログの "Fix" が Auto-right になる | config_dialog.cpp:2441 | 未着手 |
 | Illegal Defense の色の初期値が Pointto の色 | config_dialog.cpp:1258-1260 | 未着手 |

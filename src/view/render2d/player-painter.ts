@@ -1,5 +1,6 @@
 // Players (rcssmonitor src/player_painter.cpp).
 import { MAX_PLAYER, PITCH, Side } from '../../core/constants';
+import { formatG } from '../../core/number-format';
 import {
   hasRedCard,
   hasYellowCard,
@@ -560,15 +561,5 @@ function drawOffsideLine(c: PlayerPaintContext, frame: Frame): void {
 
 /** QString::arg(value, 0, 'g', 3): up to 3 significant digits, no trailing zeros. */
 export function qtNumber(v: number): string {
-  if (v === 0 || !Number.isFinite(v)) {
-    return String(v);
-  }
-  const stripZeros = (s: string) => (s.includes('.') ? s.replace(/\.?0+$/, '') : s);
-  // The exponent after rounding to 3 significant digits, as printf's %g uses.
-  const [mantissa = '', e = '0'] = v.toExponential(2).split('e');
-  const exp = Number(e);
-  if (exp < -4 || exp >= 3) {
-    return `${stripZeros(mantissa)}e${exp < 0 ? '-' : '+'}${String(Math.abs(exp)).padStart(2, '0')}`;
-  }
-  return stripZeros(v.toFixed(2 - exp));
+  return v === 0 ? '0' : formatG(v, 3);
 }

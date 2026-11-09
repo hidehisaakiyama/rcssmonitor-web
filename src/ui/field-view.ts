@@ -82,6 +82,12 @@ export class FieldView {
     return this.store;
   }
 
+  /** The field coordinates at a point in the window, e.g. of a mouse event. */
+  fieldAt(clientX: number, clientY: number): Vec2 {
+    const r = this.element.getBoundingClientRect();
+    return this.toField({ x: Math.round(clientX - r.left), y: Math.round(clientY - r.top) });
+  }
+
   setStore(store: GameStore | null): void {
     this.store = store;
     this.index = 0;

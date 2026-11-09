@@ -1,13 +1,24 @@
 // The application window: tool bar, field view and status bar, and the
-// wiring between the log loader, the log player and the view
-// (rcssmonitor src/main_window.cpp).
+// wiring between the log loader, the live connection, the log player and
+// the view (rcssmonitor src/main_window.cpp).
 import type { GameStore } from '../core/game-store';
 import { describeFormat } from '../io/format';
+import { LiveClient, type LiveState } from '../io/live/client';
 import { loadLogFile, type LoadedLog } from '../io/log-loader';
+import {
+  connectionFromUrl,
+  loadConnection,
+  saveConnection,
+  type ConnectionSettings,
+} from '../options/connection';
 import { Playback } from '../playback/playback';
 import { ViewState } from '../view/view-state';
+import { ContextMenu } from './context-menu';
+import { showConnectDialog } from './dialogs/connect-dialog';
 import { FieldView } from './field-view';
-import { handlePlayerKey, handleViewKey } from './shortcuts';
+import { Referee } from './referee';
+import { handleMonitorKey, handlePlayerKey, handleViewKey } from './shortcuts';
+import { StatusBar } from './statusbar';
 import { Toolbar } from './toolbar';
 
 const TITLE = 'rcssmonitor-web';
@@ -16,22 +27,38 @@ export class App {
   readonly view = new ViewState();
   readonly playback = new Playback();
   readonly field: FieldView;
+  readonly live: LiveClient;
+  readonly referee: Referee;
+  readonly status = new StatusBar();
+  private readonly root: HTMLElement;
   private readonly toolbar: Toolbar;
   private readonly fileInput: HTMLInputElement;
-  private readonly status: HTMLSpanElement;
-  private readonly progress: HTMLProgressElement;
-  private readonly mousePos: HTMLSpanElement;
+  private readonly menu = new ContextMenu();
+  private connection: ConnectionSettings = loadConnection();
+  private dialogOpen = false;
   private loading = false;
   private storeRevision = -1;
   private wheelDelta = 0;
 
   constructor(root: HTMLElement) {
+    this.root = root;
     this.field = new FieldView(this.view);
+    this.live = new LiveClient({
+      state: (s) => this.liveStateChanged(s),
+      game: (store) => this.liveGame(store),
+      message: (text, timeout) => this.status.showMessage(text, timeout),
+    });
+    this.referee = new Referee(this.live, this.status, root, () =>
+      this.store?.frame(this.playback.index),
+    );
 
     const p = this.playback;
     this.toolbar = new Toolbar({
       open: () => this.fileInput.click(),
-      live: () => p.setLive(),
+      connect: () => void this.connectTo(),
+      disconnect: () => this.disconnect(),
+      kickOff: () => this.referee.kickOff(),
+      live: () => this.goLive(),
       togglePlay: () => p.togglePlay(),
       stepBackward: () => p.stepBackward(),
       stepForward: () => p.stepForward(),
@@ -62,22 +89,11 @@ export class App {
       }
     });
 
-    this.status = document.createElement('span');
-    this.status.id = 'load-result';
-    this.status.className = 'status-message';
-    this.status.setAttribute('role', 'status');
-    this.progress = document.createElement('progress');
-    Object.assign(this.progress, { id: 'load-progress', max: 1, value: 0, hidden: true });
-    this.mousePos = document.createElement('span');
-    this.mousePos.id = 'mouse-pos';
-    this.mousePos.className = 'mouse-pos';
-    const statusbar = document.createElement('footer');
-    statusbar.className = 'statusbar';
-    statusbar.append(this.status, this.progress, this.mousePos);
-
-    root.append(this.toolbar.element, this.fileInput, this.field.element, statusbar);
-    this.status.textContent =
-      'Open a game log (.rcg / .rcg.gz): the open button, Ctrl+O, or drop a file here.';
+    root.append(this.toolbar.element, this.fileInput, this.field.element, this.status.element);
+    this.status.setText(
+      'Open a game log (.rcg / .rcg.gz) with the open button, Ctrl+O or by dropping it here, ' +
+        'or connect to rcssserver (server::ws_port).',
+    );
 
     p.onChange(() => {
       this.field.setFrameIndex(p.index);
@@ -85,10 +101,17 @@ export class App {
     });
     this.field.onTick = (now) => this.tick(now);
     this.field.onPointerField = (pos) => {
-      this.mousePos.textContent = pos ? `(${pos.x.toFixed(2)}, ${pos.y.toFixed(2)})` : '';
+      this.status.setMousePos(pos ? `(${pos.x.toFixed(2)}, ${pos.y.toFixed(2)})` : '');
     };
+    this.field.element.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      const point = this.field.fieldAt(e.clientX, e.clientY);
+      this.menu.show(this.referee.menuItems(point), e.clientX, e.clientY);
+    });
 
     window.addEventListener('keydown', (e) => this.keydown(e));
+    // Say (dispbye) when the page goes away.
+    window.addEventListener('pagehide', () => this.live.disconnect());
     this.field.element.addEventListener('wheel', (e) => this.wheel(e), { passive: false });
     this.attachDrop(root);
     this.updateToolbar();
@@ -98,36 +121,50 @@ export class App {
     return this.playback.store;
   }
 
+  /** Applies URL parameters (rcssmonitor's command line options), e.g. ?connect=1&port=6080. */
+  applyUrlParams(params: URLSearchParams): void {
+    const { settings, connect } = connectionFromUrl(this.connection, params);
+    this.connection = settings;
+    if (connect) {
+      this.connect(settings, false);
+    }
+  }
+
   async open(file: File): Promise<void> {
     if (this.loading) {
       return;
     }
+    // rcssmonitor disconnects before opening a log.
+    this.disconnect();
     this.loading = true;
-    this.progress.hidden = false;
-    this.progress.value = 0;
-    this.status.title = '';
-    this.status.textContent = `Reading ${file.name}…`;
+    this.status.progress.hidden = false;
+    this.status.progress.value = 0;
+    this.status.clearMessage();
+    this.status.setText(`Reading ${file.name}…`);
     try {
       const log = await loadLogFile(await file.arrayBuffer(), {
         progress: (phase, fraction, store) => {
-          this.progress.value = fraction;
-          this.status.textContent =
+          this.status.progress.value = fraction;
+          this.status.setText(
             phase === 'decompress'
               ? `Decompressing ${file.name}… ${Math.round(fraction * 100)}%`
-              : `Parsing ${file.name}… cycle ${store.lastFrame?.time ?? 0}`;
+              : `Parsing ${file.name}… cycle ${store.lastFrame?.time ?? 0}`,
+          );
         },
       });
       this.setStore(log.store);
       document.title = `${file.name} - ${TITLE}`;
-      this.status.textContent = `${file.name}: ${summaryLine(log)}`;
-      if (log.result.warnings > 0) {
-        this.status.title = log.warnings.map((w) => `line ${w.line}: ${w.message}`).join('\n');
-      }
+      this.status.setText(
+        `${file.name}: ${summaryLine(log)}`,
+        log.warnings.map((w) => `line ${w.line}: ${w.message}`).join('\n'),
+      );
     } catch (error) {
-      this.status.textContent = `${file.name}: ${error instanceof Error ? error.message : String(error)}`;
+      this.status.setText(
+        `${file.name}: ${error instanceof Error ? error.message : String(error)}`,
+      );
     } finally {
       this.loading = false;
-      this.progress.hidden = true;
+      this.status.progress.hidden = true;
     }
   }
 
@@ -137,6 +174,64 @@ export class App {
     this.field.setStore(store);
     this.storeRevision = store?.revision ?? -1;
     this.playback.setStore(store);
+  }
+
+  /** Connects with the settings; saves them if asked to. */
+  connect(settings: ConnectionSettings, save = true): void {
+    this.connection = settings;
+    if (save) {
+      saveConnection(settings);
+    }
+    this.live.autoReconnect = settings.autoReconnect;
+    this.live.reconnectWait = settings.reconnectWait;
+    this.live.connect(settings);
+  }
+
+  /** Connect to ...: asks where (MainWindow::connectMonitorTo). */
+  async connectTo(): Promise<void> {
+    if (this.dialogOpen) {
+      return;
+    }
+    this.dialogOpen = true;
+    try {
+      const settings = await showConnectDialog(this.root, this.connection);
+      if (settings) {
+        this.connect(settings);
+      }
+    } finally {
+      this.dialogOpen = false;
+    }
+  }
+
+  disconnect(): void {
+    if (this.live.state !== 'idle') {
+      this.live.disconnect();
+      this.status.showMessage('Disconnected.', 3000);
+    }
+  }
+
+  /** Live mode (Ctrl+L): only while connected, as in rcssmonitor. */
+  private goLive(): void {
+    if (this.live.state === 'connected') {
+      this.playback.setLive();
+    }
+  }
+
+  /** A connection was accepted: show its game, following the newest frame. */
+  private liveGame(store: GameStore): void {
+    this.status.setText(`Live game from ${this.live.url}`);
+    document.title = `${this.live.url} - ${TITLE}`;
+    this.setStore(store);
+    this.playback.setLive();
+  }
+
+  private liveStateChanged(state: LiveState): void {
+    this.status.setConnection(state, this.live.url);
+    if (state !== 'connected' && this.playback.live) {
+      // No more frames: the game stays to look at, like a log.
+      this.playback.stop();
+    }
+    this.updateToolbar();
   }
 
   private tick(now: number): void {
@@ -159,12 +254,17 @@ export class App {
       interval: p.interval,
       loop: p.loop,
       live: p.live,
+      connection: this.live.state,
     });
   }
 
   private keydown(e: KeyboardEvent): void {
     const target = e.target as HTMLElement | null;
     if (target instanceof HTMLInputElement && target.type !== 'range') {
+      return;
+    }
+    // Keys in an open dialog or the pop-up menu belong to them.
+    if (target?.closest('dialog[open], .context-menu') || this.menu.isOpen) {
       return;
     }
     // Let a focused button take Space and Enter.
@@ -176,7 +276,22 @@ export class App {
       this.fileInput.click();
       return;
     }
-    if (handlePlayerKey(this.playback, e) || handleViewKey(this.view, e)) {
+    const monitor = {
+      // Connect (Ctrl+C): to the last server, without asking. Like the
+      // action in rcssmonitor, it does nothing while connected.
+      connect: () => {
+        if (this.live.state === 'idle') {
+          this.connect(this.connection);
+        }
+      },
+      live: () => this.goLive(),
+      kickOff: () => this.referee.kickOff(),
+    };
+    if (
+      handleMonitorKey(monitor, e) ||
+      handlePlayerKey(this.playback, e) ||
+      handleViewKey(this.view, e)
+    ) {
       e.preventDefault();
     }
   }

@@ -72,8 +72,8 @@ export function handleViewKey(view: ViewState, e: KeyboardEvent): boolean {
 
 /**
  * Log player keys (rcssmonitor MainWindow::createActions): Space, arrows,
- * Home / End, G / Ctrl+G, Ctrl+Up / Down and Ctrl+L. Returns true if the
- * key was used.
+ * Home / End, G / Ctrl+G and Ctrl+Up / Down. Returns true if the key was
+ * used.
  */
 export function handlePlayerKey(playback: Playback, e: KeyboardEvent): boolean {
   if (e.altKey || e.shiftKey) {
@@ -91,10 +91,6 @@ export function handlePlayerKey(playback: Playback, e: KeyboardEvent): boolean {
       case 'g':
       case 'G':
         playback.goToPreviousScore();
-        return true;
-      case 'l':
-      case 'L':
-        playback.setLive();
         return true;
       default:
         return false;
@@ -119,6 +115,40 @@ export function handlePlayerKey(playback: Playback, e: KeyboardEvent): boolean {
     case 'g':
     case 'G':
       playback.goToNextScore();
+      return true;
+    default:
+      return false;
+  }
+}
+
+export interface MonitorKeyActions {
+  connect(): void;
+  live(): void;
+  kickOff(): void;
+}
+
+/**
+ * Monitor and referee keys (rcssmonitor MainWindow::createActionsMonitor,
+ * createActionsLogPlayer and createActionsReferee): Ctrl+C connects,
+ * Ctrl+L goes live and Ctrl+K kicks off. Ctrl+C is left to the browser
+ * while text is selected, so that copying still works.
+ */
+export function handleMonitorKey(actions: MonitorKeyActions, e: KeyboardEvent): boolean {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) {
+    return false;
+  }
+  switch (e.key.toLowerCase()) {
+    case 'c':
+      if (!(document.getSelection()?.isCollapsed ?? true)) {
+        return false;
+      }
+      actions.connect();
+      return true;
+    case 'l':
+      actions.live();
+      return true;
+    case 'k':
+      actions.kickOff();
       return true;
     default:
       return false;

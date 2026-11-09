@@ -5,6 +5,11 @@
 //        [--frame N] [--options JSON] [--select N] [--prefix NAME]
 //        [--crop X,Y,W,H ...] [--zoom N] [--font FAMILY]
 //        [--actions zoomIn,toggleFocusBall,...]   (ViewState methods, run after the first draw)
+//   node tools/parity/compare.mjs --ref qt.png --live HOST:PORT --out DIR [...]
+//
+// --live connects to rcssserver (server::ws_port) instead of opening a log
+// and draws the newest frame 2 seconds later, e.g. for a game stopped before
+// the kick off, which both monitors show the same.
 //
 // --ref is a capture of rcssmonitor (tools/parity/capture.sh). The field
 // canvas is found as the area below the toolbar that starts with the field
@@ -20,6 +25,7 @@ const { values: args } = parseArgs({
   options: {
     ref: { type: 'string' },
     log: { type: 'string' },
+    live: { type: 'string' },
     out: { type: 'string' },
     frame: { type: 'string', default: '0' },
     options: { type: 'string', default: '{}' },
@@ -31,8 +37,10 @@ const { values: args } = parseArgs({
     actions: { type: 'string', default: '' },
   },
 });
-if (!args.ref || !args.log || !args.out) {
-  console.error('usage: compare.mjs --ref qt.png --log LOG --out DIR [--frame N] [--options JSON]');
+if (!args.ref || !(args.log || args.live) || !args.out) {
+  console.error(
+    'usage: compare.mjs --ref qt.png (--log LOG | --live HOST:PORT) --out DIR [--frame N] [--options JSON]',
+  );
   process.exit(1);
 }
 mkdirSync(args.out, { recursive: true });
@@ -68,8 +76,15 @@ try {
   const width = ref.width;
   const height = ref.height - ref.top;
 
-  await page.setInputFiles('#rcg-file', resolve(args.log));
-  await page.locator('#load-result').filter({ hasText: 'frames' }).waitFor();
+  if (args.live) {
+    const [host, port] = args.live.split(':');
+    await page.goto(`${html}?connect=1&host=${host}&port=${port}`);
+    await page.locator('#connection-status').filter({ hasText: 'Connected' }).waitFor();
+    await page.waitForTimeout(2000);
+  } else {
+    await page.setInputFiles('#rcg-file', resolve(args.log));
+    await page.locator('#load-result').filter({ hasText: 'frames' }).waitFor();
+  }
   await page.evaluate(
     ({ width, height, frame, options, select, font, actions }) => {
       const hook = window.rcssmonitorWeb;
@@ -87,7 +102,9 @@ try {
         hook.view.selectPlayer(select);
       }
       hook.view.changed();
-      hook.showFrame(frame);
+      if (frame >= 0) {
+        hook.showFrame(frame);
+      }
       hook.renderNow();
       for (const a of actions) {
         const [name, arg] = a.split(':');
@@ -100,7 +117,8 @@ try {
     {
       width,
       height,
-      frame: Number(args.frame),
+      // Live: the newest frame.
+      frame: args.live ? -1 : Number(args.frame),
       options: JSON.parse(args.options),
       select: Number(args.select),
       font: args.font,

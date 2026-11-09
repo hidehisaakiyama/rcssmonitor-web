@@ -36,8 +36,8 @@ export function requireBuild(): void {
 }
 
 /** Opens the single-file build from file://, as users on a LAN do. */
-export async function openApp(page: Page): Promise<void> {
-  await page.goto(pathToFileURL(singleHtml).href);
+export async function openApp(page: Page, query = ''): Promise<void> {
+  await page.goto(pathToFileURL(singleHtml).href + query);
 }
 
 export async function loadLog(page: Page, name: string): Promise<void> {

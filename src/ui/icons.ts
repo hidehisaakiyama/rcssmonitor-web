@@ -12,6 +12,24 @@ export const ICONS = {
     '<path d="M1.5 4.5v8h12l1-6h-9l-1 2" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>' +
       '<path d="M1.5 4.5v-1h4l1 1h6v2" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>',
   ),
+  // A plug in its socket, and pulled out.
+  connect: svg(
+    '<path d="M0.5 8h2M7.5 6.5h3M7.5 9.5h3" fill="none" stroke="currentColor" stroke-width="1.3"/>' +
+      '<rect x="2.5" y="4.5" width="5" height="7" rx="1" fill="currentColor"/>' +
+      '<path d="M10.5 3.5h4v9h-4" fill="none" stroke="currentColor" stroke-width="1.3"/>',
+  ),
+  disconnect: svg(
+    '<path d="M0.5 8h1M6.5 6.5h2M6.5 9.5h2" fill="none" stroke="currentColor" stroke-width="1.3"/>' +
+      '<rect x="1.5" y="4.5" width="5" height="7" rx="1" fill="currentColor"/>' +
+      '<path d="M11 3.5h3.5v9H11" fill="none" stroke="currentColor" stroke-width="1.3"/>',
+  ),
+  // A ball.
+  kickOff: svg(
+    '<circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.3"/>' +
+      '<path d="M8 5.2l2.6 1.9-1 3.1H6.4l-1-3.1z" fill="currentColor"/>' +
+      '<path d="M8 5.2V2M10.6 7.1l3-1M9.6 10.2l1.9 2.6M6.4 10.2l-1.9 2.6M5.4 7.1l-3-1" ' +
+      'fill="none" stroke="currentColor" stroke-width="1"/>',
+  ),
   live: svg(text('LIVE', 6)),
   play: svg('<path d="M4.5 2.5v11l9-5.5z" fill="currentColor"/>'),
   stop: svg('<rect x="3.5" y="3.5" width="9" height="9" fill="currentColor"/>'),

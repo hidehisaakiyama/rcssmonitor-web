@@ -1,10 +1,16 @@
 // The log player tool bar (rcssmonitor MainWindow::createToolBars and
 // src/log_player_slider.cpp), plus a cycle input that rcssmonitor lacks.
+// Until the menu bar comes (Phase 5), it also holds Connect, Disconnect
+// and Kick Off from the Monitor and Referee menus.
 import type { Frame } from '../core/frame';
+import type { LiveState } from '../io/live/client';
 import { ICONS, type IconName } from './icons';
 
 export interface ToolbarActions {
   open(): void;
+  connect(): void;
+  disconnect(): void;
+  kickOff(): void;
   live(): void;
   togglePlay(): void;
   stepBackward(): void;
@@ -27,6 +33,7 @@ export interface ToolbarState {
   readonly interval: number;
   readonly loop: boolean;
   readonly live: boolean;
+  readonly connection: LiveState;
 }
 
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
@@ -64,7 +71,14 @@ export class Toolbar {
     };
 
     let g = group();
-    g.append(this.button('open', 'open', `Open a game log (${CTRL}O)`, () => actions.open()));
+    g.append(
+      this.button('open', 'open', `Open a game log (${CTRL}O)`, () => actions.open()),
+      this.button('connect', 'connect', `Connect to a server... (${CTRL}C: connect again)`, () =>
+        actions.connect(),
+      ),
+      this.button('disconnect', 'disconnect', 'Disconnect', () => actions.disconnect()),
+      this.button('kick-off', 'kickOff', `Kick off (${CTRL}K)`, () => actions.kickOff()),
+    );
 
     g = group();
     g.append(
@@ -126,9 +140,23 @@ export class Toolbar {
 
   update(s: ToolbarState): void {
     const has = s.frameCount > 0;
+    const connected = s.connection === 'connected';
     for (const [name, b] of this.buttons) {
-      if (name !== 'open') {
-        b.disabled = !has;
+      switch (name) {
+        case 'open':
+          break;
+        case 'connect':
+          b.disabled = s.connection !== 'idle';
+          break;
+        case 'disconnect':
+          b.disabled = s.connection === 'idle';
+          break;
+        case 'kick-off':
+        case 'live':
+          b.disabled = !connected || (name === 'live' && !has);
+          break;
+        default:
+          b.disabled = !has;
       }
     }
     this.slider.disabled = !has;

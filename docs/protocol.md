@@ -46,7 +46,7 @@ rcssmonitor-web が扱う、rcssserver のモニタ用 WebSocket / JSON プロ�
 3. 受け付けに成功しても、それを知らせる応答はない。最初に届く JSON は `{"server_param":{…}}` になる。
 
 - **エラー応答は JSON ではなく S 式のテキスト**で届く。先頭が `{` でないフレームはエラーとして扱う。
-- `/monitor` で最初のメッセージが dispinit でなければ `(error unknown_command)` が返る。接続は受け付け待ちのまま残るので、10 秒以内なら dispinit を送り直せる (`server/stadium.cpp:2801-2804`)。
+- `/monitor` で最初のメッセージが dispinit でなければ `(error unknown_command)` が返る。接続は受け付け待ちのまま残るので、10 秒以内なら dispinit を送り直せる (`server/stadium.cpp:2801-2804`)。`(error no_more_monitor)` などで拒否したときも同じく接続は残る。rcssmonitor は最初のメッセージが `(error` で始まれば切断し、rcssmonitor-web は最初のメッセージが JSON でなければ切断する。
 - ライブのストリームにはサーバのバージョン文字列が含まれない。
 
 ## 3. サーバ → モニタのメッセージ
@@ -264,7 +264,7 @@ rcssmonitor-web が扱う、rcssserver のモニタ用 WebSocket / JSON プロ�
 |---|---|---|
 | 切断 | `(dispbye)` | 接続を閉じる (close フレームは送られない) |
 | キックオフ | `(dispstart)` | 前後半の境目 (`time % half_time == 0`) でだけ働く。keepaway モードでは play_on にする。応答はない (`server/stadium.cpp:1157-1215`) |
-| フリーキック / ドロップボール | `(dispfoul X Y SIDE)` | 整数。位置は X/16、Y/16 メートル。SIDE は 1 で左のフリーキック、-1 で右のフリーキック、0 でドロップボール。PK 戦の間は無視される (`server/stadium.cpp:1259-1302`) |
+| フリーキック / ドロップボール | `(dispfoul X Y SIDE)` | 整数。位置は X/16、Y/16 メートル。SIDE は 1 で左のフリーキック、-1 で右のフリーキック、0 でドロップボール。PK 戦の間は無視される (`server/stadium.cpp:1259-1302`)。ドロップボールはその場で play_on に変わるので、drop_ball の show は届かない。ボールの位置で確かめる |
 | 選手の移動 | `(dispplayer SIDE UNUM X Y ANG)` | 整数。位置は X/16、Y/16。**ANG は 16 倍しない整数の度** (`server/monitor.cpp:458-460`)。速度は 0 になる |
 | 退場 | `(dispdiscard SIDE UNUM)` | |
 | カード | `(dispcard SIDE UNUM yellow\|red)` | |
@@ -274,7 +274,7 @@ rcssmonitor-web が扱う、rcssserver のモニタ用 WebSocket / JSON プロ�
 
 - `(start)`
 - `(change_mode <mode>)`
-- `(move (ball) x y [vx vy])`
+- `(move (ball) x y [ang [vx vy]])`。数は 2 個、3 個、5 個のいずれか。ボールでは ang は使われないが、速度を渡すには間に置く (`server/monitor.cpp` `coach_move`)。rcssmonitor は `(move (ball) x y 0 vx vy)` を送る
 - `(move (player TEAM N) x y [ang [vx vy]])` (実座標のメートルと度)
 - `(recover)`
 - `(check_ball)`。応答は `(ok check_ball T in_field|goal_l|goal_r|out_of_field)`
@@ -391,7 +391,7 @@ gzip かどうかは、その前に先頭の `1f 8b` で判定する。
 - **単一 HTML 版の Worker は classic 形式 (IIFE) でインライン化する** (Vite の `worker.format: 'iife'`)。module 形式では Chrome で起動しない。
   - この設定で作った単一 HTML を file:// で開き、Worker の中で gzip を展開して形式を判定するところまでを、Playwright の E2E テスト (`test/e2e/load-file.spec.ts`) で確かめた。Chromium (Chrome for Testing 156) と Firefox 157 の両方で通る。
 - `server::ws_allowed_origins` を設定するサーバに file:// から接続するには、一覧に `null` を加える必要がある (`server::ws_allowed_origins='null'`)。拒否されたとき、サーバのログは `refused: 403 Forbidden (path=/monitor origin=null)` となり、ブラウザ側では close コード 1006 で、フレームは 1 つも届かない。
-- rcssserver のコマンドラインで文字列の値を渡すときは、引用符で囲む (`"server::ws_allowed_origins='http://example.invalid'"`)。囲まないと `://` の所で解析エラーになり、サーバが起動しない。
+- rcssserver のコマンドラインで文字列の値を渡すときは、引用符で囲む (`"server::ws_allowed_origins='http://example.invalid'"`)。囲まないと `://` の所で解析エラーになり、サーバが起動しない。値の中に空白も入れられないので、複数の Origin は空白なしのカンマで区切る (`'http://example.invalid,null'`。19.0.0 で確認)。
 
 ### https のページから ws:// に接続した場合 (Chrome 157 のみ)
 

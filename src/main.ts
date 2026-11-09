@@ -6,6 +6,7 @@ if (!root) {
   throw new Error('#app not found');
 }
 const app = new App(root);
+app.applyUrlParams(new URLSearchParams(location.search));
 
 // Hooks for the end-to-end tests and for debugging from the console.
 declare global {
@@ -18,6 +19,7 @@ window.rcssmonitorWeb = {
   view: app.view,
   playback: app.playback,
   field: app.field,
+  live: app.live,
   showFrame: (index: number) => app.playback.goToIndex(index),
   scoreBoard: () => (app.store ? scoreBoardText(app.store, app.field.frameIndex) : ''),
   renderNow: () => app.field.renderNow(),

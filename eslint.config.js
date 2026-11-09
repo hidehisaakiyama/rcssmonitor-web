@@ -50,7 +50,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ['*.config.{js,ts}', 'tools/**/*.{js,mjs}', 'test/**/*.ts'],
+    files: ['*.config.{js,ts}', 'tools/**/*.{js,mjs,ts}', 'test/**/*.ts'],
     languageOptions: { globals: globals.node },
   },
   {
