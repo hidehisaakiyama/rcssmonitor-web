@@ -13,6 +13,7 @@ import {
 } from '../options/connection';
 import { DEFAULT_APP_SETTINGS, SettingsStore, type AppSettings } from '../options/settings';
 import { Playback } from '../playback/playback';
+import type { FieldRenderer } from '../view/renderer';
 import { ViewState } from '../view/view-state';
 import { ContextMenu, type MenuItem } from './context-menu';
 import { ConfigDialog } from './dialogs/config-dialog';
@@ -60,6 +61,8 @@ export class App {
   private playerTypeCount = 0;
   private wheelDelta = 0;
   private saveTimer: ReturnType<typeof setTimeout> | undefined;
+  /** The 3D renderer, loaded the first time it is shown. */
+  private render3d: Promise<FieldRenderer> | null = null;
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -93,6 +96,7 @@ export class App {
         this.settingsChanged();
         this.updateToolbar();
       },
+      toggle3d: () => void this.toggle3d(),
       seek: (i) => p.goToIndex(i),
       goToCycle: (c) => p.goToCycle(c),
     });
@@ -206,6 +210,46 @@ export class App {
     this.playback.defaultInterval = s.timerInterval;
     this.playback.loop = s.autoLoop;
     this.applyCanvasSize();
+    if (s.view3d !== this.is3d) {
+      void this.set3d(s.view3d);
+    }
+    this.updateToolbar();
+  }
+
+  // ---- 2D / 3D
+
+  get is3d(): boolean {
+    return this.field.renderer.kind === '3d';
+  }
+
+  /** Switches between the 2D and 3D views (D). */
+  async toggle3d(): Promise<void> {
+    await this.set3d(!this.is3d);
+    this.settings.view3d = this.is3d;
+    this.settingsChanged();
+  }
+
+  /**
+   * Shows the 3D view or the 2D view. The 3D renderer and three.js are
+   * loaded the first time; without WebGL the view stays 2D.
+   */
+  async set3d(on: boolean): Promise<void> {
+    if (!on) {
+      this.field.setRenderer(this.field.render2d);
+      this.updateToolbar();
+      return;
+    }
+    this.render3d ??= import('../view/render3d/render3d').then((m) => new m.Render3D());
+    try {
+      this.field.setRenderer(await this.render3d);
+    } catch (e) {
+      this.render3d = null;
+      this.settings.view3d = false;
+      this.status.showMessage(
+        `The 3D view is not available: ${e instanceof Error ? e.message : String(e)}`,
+        5000,
+      );
+    }
     this.updateToolbar();
   }
 
@@ -328,6 +372,13 @@ export class App {
         shortcut: `${CTRL_LABEL}H`,
         checked: this.playerTypes.panel.isOpen,
         action: () => this.playerTypes.panel.toggle(),
+      },
+      {
+        id: 'view-3d',
+        label: '3D View',
+        shortcut: 'D',
+        checked: this.is3d,
+        action: () => void this.toggle3d(),
       },
       { kind: 'separator' },
       {
@@ -495,6 +546,7 @@ export class App {
       loop: p.loop,
       live: p.live,
       connection: this.live.state,
+      view3d: this.is3d,
     });
   }
 
@@ -513,6 +565,7 @@ export class App {
     }
     const windowKeys = {
       open: () => this.fileInput.click(),
+      toggle3d: () => void this.toggle3d(),
       toggleMenuBar: () => this.toggleBar('showMenuBar'),
       playerTypes: () => this.playerTypes.panel.toggle(),
       preference: () => this.config.panel.toggle(),
@@ -541,7 +594,8 @@ export class App {
 
   /** The wheel steps frames: down is forward (MainWindow::wheelEvent). */
   private wheel(e: WheelEvent): void {
-    if (!this.store) {
+    // In 3D, the wheel zooms the camera.
+    if (!this.store || this.is3d) {
       return;
     }
     e.preventDefault();

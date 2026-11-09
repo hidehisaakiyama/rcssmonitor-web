@@ -9,13 +9,26 @@ import type { Viewport } from './viewport';
 const HALF_LENGTH = PITCH.length * 0.5;
 const HALF_WIDTH = PITCH.width * 0.5;
 
-export function drawField(p: QtPainter, vp: Viewport, view: ViewState, sp: ServerParam): void {
+export interface FieldOptions {
+  /** The goals as boxes behind the goal lines (default). The 3D view builds its own. */
+  readonly goals?: boolean;
+}
+
+export function drawField(
+  p: QtPainter,
+  vp: Viewport,
+  view: ViewState,
+  sp: ServerParam,
+  options: FieldOptions = {},
+): void {
   p.antialias = false;
   p.fillRect(0, 0, vp.width, vp.height, view.colors.field);
   drawLines(p, vp, view, sp);
   drawPenaltyAreaLines(p, vp, view);
   drawGoalAreaLines(p, vp, view);
-  drawGoals(p, vp);
+  if (options.goals ?? true) {
+    drawGoals(p, vp);
+  }
   if (view.options.showFlag) {
     drawFlags(p, vp, view);
   }
@@ -39,7 +52,8 @@ function drawLines(p: QtPainter, vp: Viewport, view: ViewState, sp: ServerParam)
   p.drawLine(rightX, bottomY, leftX, bottomY);
   p.drawLine(leftX, bottomY, leftX, topY);
 
-  if (sp.keepaway_mode || view.options.showKeepawayArea) {
+  // "keepaway" in server_param (rcssmonitor reads it into keepaway_mode_).
+  if (sp.keepaway || view.options.showKeepawayArea) {
     // The keepaway area instead of the center line and circle.
     p.drawRect(
       vp.screenX(-sp.keepaway_length * 0.5),

@@ -160,6 +160,7 @@ export function handleMonitorKey(actions: MonitorKeyActions, e: KeyboardEvent): 
 
 export interface WindowKeyActions {
   open(): void;
+  toggle3d(): void;
   toggleMenuBar(): void;
   playerTypes(): void;
   preference(): void;
@@ -182,6 +183,11 @@ export function handleWindowKey(actions: WindowKeyActions, e: KeyboardEvent): bo
   }
   if (e.key === 'Enter' && e.altKey && !ctrl) {
     actions.fullScreen();
+    return true;
+  }
+  // D: not in rcssmonitor.
+  if (e.key.toLowerCase() === 'd' && !ctrl && !e.altKey) {
+    actions.toggle3d();
     return true;
   }
   if (!ctrl || e.altKey) {
@@ -274,6 +280,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { group: 'Window', keys: [ctrl('h')], action: 'Player type list' },
   { group: 'Window', keys: [ctrl('v')], action: 'Preference (view configuration)' },
   { group: 'Window', keys: [key('F11'), { key: 'Enter', alt: true }], action: 'Full screen' },
+  { group: 'Window', keys: [key('d')], action: 'Switch between the 2D and 3D views' },
   { group: 'View', keys: [key('z')], action: 'Zoom in' },
   { group: 'View', keys: [key('x'), ctrl('z')], action: 'Zoom out' },
   { group: 'View', keys: [key('i')], action: 'Fit the field to the window' },

@@ -62,6 +62,7 @@ rcssmonitor (Qt 版) の機能と、rcssmonitor-web での扱いをまとめた�
 | draw info (v1 の DRAW レコード) | draw_info_painter.cpp | — | 対象外 | バイナリ v1 にしかない |
 | ボール・選手の軌跡 | (`#if 0` で無効) | 将来 | 対象外 | 初回の正式リリース (20.0.0) の対象外 (将来の拡張)。rcssmonitor でも無効 |
 | アンチエイリアス | options | — | 対象外 | Canvas では常に有効 |
+| 3D 表示 | (rcssmonitor にない) | 6 | 作業中 | View > 3D View、ツールバー、キー D。フィールド、ゴール、選手、ボール (高さと影) とカメラの回転は済。カメラの切り替え、補間、状態の強調と視野は次の区切り |
 
 ## 4. 表示の操作
 

@@ -29,6 +29,8 @@ export interface AppSettings {
   /** Fixed size of the field in CSS pixels; 0 fits the window. */
   canvasWidth: number;
   canvasHeight: number;
+  /** The 3D view instead of the 2D one (not in rcssmonitor). */
+  view3d: boolean;
 }
 
 export const DEFAULT_APP_SETTINGS: Readonly<AppSettings> = Object.freeze({
@@ -39,6 +41,7 @@ export const DEFAULT_APP_SETTINGS: Readonly<AppSettings> = Object.freeze({
   autoLoop: false,
   canvasWidth: 0,
   canvasHeight: 0,
+  view3d: false,
 });
 
 /** What the settings apply to. */
@@ -118,6 +121,8 @@ export const SETTINGS: readonly Entry[] = [
   appBool('auto_loop_mode', 'autoLoop'),
   appNumber('canvas_width', 'canvasWidth', { min: 0, max: 3000, integer: true }),
   appNumber('canvas_height', 'canvasHeight', { min: 0, max: 3000, integer: true }),
+  // Not in rcssmonitor.
+  appBool('view_3d', 'view3d'),
 
   viewBool('show_score_board', 'showScoreBoard'),
   viewBool('show_team_graphic', 'showTeamGraphic'),

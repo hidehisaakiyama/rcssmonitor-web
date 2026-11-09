@@ -1,5 +1,8 @@
 // The field view: the renderer's canvas with the HUD on top, mouse
-// operations and the redraw loop (rcssmonitor src/field_canvas.cpp).
+// operations and the redraw loop (rcssmonitor src/field_canvas.cpp). The
+// renderer is the 2D one or the 3D one; the 2D mouse operations (dragging
+// the field, the measuring tool, double click) apply to the 2D view only,
+// and the 3D renderer handles the mouse for its camera.
 import type { GameStore } from '../core/game-store';
 import type { Vec2 } from '../core/geometry';
 import { Hud } from '../view/hud/hud';
@@ -42,7 +45,9 @@ class MouseState {
 
 export class FieldView {
   readonly element: HTMLDivElement;
-  readonly renderer: FieldRenderer;
+  /** The 2D renderer, kept while the 3D one is shown. */
+  readonly render2d = new Render2D();
+  private rendererValue: FieldRenderer = this.render2d;
   private readonly hud = new Hud();
   private store: GameStore | null = null;
   private index = 0;
@@ -64,7 +69,6 @@ export class FieldView {
   constructor(readonly view: ViewState) {
     this.element = document.createElement('div');
     this.element.className = 'field-view';
-    this.renderer = new Render2D();
     this.element.append(this.renderer.canvas, this.hud.canvas);
 
     view.onChange(() => this.invalidate());
@@ -76,6 +80,30 @@ export class FieldView {
 
   get frameIndex(): number {
     return this.index;
+  }
+
+  get renderer(): FieldRenderer {
+    return this.rendererValue;
+  }
+
+  /** Shows another renderer (2D / 3D); the game, the frame and the view settings stay. */
+  setRenderer(renderer: FieldRenderer): void {
+    const old = this.rendererValue;
+    if (renderer === old) {
+      return;
+    }
+    old.detach?.();
+    old.onInvalidate = null;
+    old.canvas.replaceWith(renderer.canvas);
+    this.rendererValue = renderer;
+    renderer.onInvalidate = () => this.invalidate();
+    renderer.attach?.(this.element);
+    this.focusMouse.release();
+    this.measureMouse.release();
+    // Size it for this view.
+    this.width = 0;
+    this.updateSize();
+    this.invalidate();
   }
 
   get gameStore(): GameStore | null {
@@ -180,7 +208,11 @@ export class FieldView {
       return { x: Math.round(e.clientX - r.left), y: Math.round(e.clientY - r.top) };
     };
 
+    const is2d = () => this.rendererValue.kind === '2d';
     el.addEventListener('mousedown', (e) => {
+      if (!is2d()) {
+        return;
+      }
       const p = point(e);
       if (e.button === 0 && !e.shiftKey) {
         this.focusMouse.press(p);
@@ -223,11 +255,12 @@ export class FieldView {
         this.invalidate();
       }
       const inside = p.x >= 0 && p.y >= 0 && p.x < this.width && p.y < this.height;
-      this.onPointerField?.(inside ? this.toField(p) : null);
+      // In 3D, null also above the horizon.
+      this.onPointerField?.(inside ? this.renderer.screenToField(p.x, p.y) : null);
     });
 
     el.addEventListener('dblclick', (e) => {
-      if (e.button === 0) {
+      if (e.button === 0 && is2d()) {
         const f = this.toField(point(e));
         this.view.setFocusPoint(f.x, f.y);
       }

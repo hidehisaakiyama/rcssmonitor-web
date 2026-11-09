@@ -31,6 +31,7 @@ export const ICONS = {
       'fill="none" stroke="currentColor" stroke-width="1"/>',
   ),
   live: svg(text('LIVE', 6)),
+  view3d: svg(text('3D', 7.5)),
   play: svg('<path d="M4.5 2.5v11l9-5.5z" fill="currentColor"/>'),
   stop: svg('<rect x="3.5" y="3.5" width="9" height="9" fill="currentColor"/>'),
   stepBackward: svg(

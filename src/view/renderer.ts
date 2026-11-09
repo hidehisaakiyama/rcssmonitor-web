@@ -16,7 +16,14 @@ export interface SceneSnapshot {
 }
 
 export interface FieldRenderer {
+  readonly kind: '2d' | '3d';
   readonly canvas: HTMLCanvasElement;
+  /** Set by the view: the renderer asks to be drawn again (e.g. the 3D camera moved). */
+  onInvalidate?: (() => void) | null;
+  /** Takes the mouse on the element holding the canvas (3D camera). */
+  attach?(element: HTMLElement): void;
+  /** Stops taking the mouse. */
+  detach?(): void;
   /** Size in CSS pixels and the device pixel ratio. */
   resize(width: number, height: number, dpr: number): void;
   /** Draws a scene, or only the field when no log is open. */

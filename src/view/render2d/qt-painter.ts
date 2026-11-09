@@ -21,6 +21,12 @@ export interface Pen {
 
 export class QtPainter {
   antialias = true;
+  /**
+   * Multiplies every pen width, points included. 1 draws like rcssmonitor.
+   * The 3D view paints its field texture at a large scale with wider pens,
+   * so that the lines keep about their real width (12 cm).
+   */
+  penScale = 1;
   /** Drawing area in CSS pixels; pixels outside are not rasterized. */
   bounds = { width: 0, height: 0 };
   private pen: Pen | null = { color: '#000000', width: 0 };
@@ -146,7 +152,7 @@ export class QtPainter {
   drawPoint(x: number, y: number): void {
     if (this.pen) {
       this.ctx.fillStyle = this.pen.color;
-      this.ctx.fillRect(x, y, 1, 1);
+      this.ctx.fillRect(x, y, this.penScale, this.penScale);
     }
   }
 
@@ -175,7 +181,13 @@ export class QtPainter {
 
   /** True if curves are drawn pixel by pixel: aliased, thin and solid. */
   private rasterized(): boolean {
-    return !this.antialias && this.pen !== null && this.pen.width <= 1 && !this.pen.dot;
+    return (
+      !this.antialias &&
+      this.penScale === 1 &&
+      this.pen !== null &&
+      this.pen.width <= 1 &&
+      !this.pen.dot
+    );
   }
 
   /**
@@ -267,7 +279,7 @@ export class QtPainter {
     if (!pen) {
       return false;
     }
-    const width = pen.width === 0 ? 1 : pen.width;
+    const width = this.penWidth(pen);
     const ctx = this.ctx;
     ctx.strokeStyle = pen.color;
     ctx.lineWidth = width;
@@ -276,7 +288,12 @@ export class QtPainter {
   }
 
   private offset(): number {
-    const width = this.pen && this.pen.width > 1 ? this.pen.width : 1;
+    const width = this.pen ? this.penWidth(this.pen) : 1;
     return !this.antialias && width % 2 === 1 ? 0.5 : 0;
+  }
+
+  /** In pixels: 0 is Qt's cosmetic pen (1 pixel). */
+  private penWidth(pen: Pen): number {
+    return (pen.width === 0 ? 1 : pen.width) * this.penScale;
   }
 }

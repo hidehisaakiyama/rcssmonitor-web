@@ -24,6 +24,7 @@ function handled(k: KeySpec): boolean {
   } as KeyboardEvent;
   const actions = {
     open: noop,
+    toggle3d: noop,
     toggleMenuBar: noop,
     playerTypes: noop,
     preference: noop,

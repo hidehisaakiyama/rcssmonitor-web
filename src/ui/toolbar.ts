@@ -21,6 +21,7 @@ export interface ToolbarActions {
   previousScore(): void;
   nextScore(): void;
   toggleLoop(): void;
+  toggle3d(): void;
   seek(index: number): void;
   /** Returns false if the log has no such cycle. */
   goToCycle(cycle: number): boolean;
@@ -35,6 +36,7 @@ export interface ToolbarState {
   readonly loop: boolean;
   readonly live: boolean;
   readonly connection: LiveState;
+  readonly view3d: boolean;
 }
 
 const CTRL = CTRL_LABEL;
@@ -97,6 +99,7 @@ export class Toolbar {
       ),
       this.button('next-score', 'nextScore', 'Next goal (G)', () => actions.nextScore()),
       this.button('loop', 'loop', 'Loop playback', () => actions.toggleLoop()),
+      this.button('view-3d', 'view3d', '3D view (D)', () => actions.toggle3d()),
     );
 
     this.slider = document.createElement('input');
@@ -144,6 +147,7 @@ export class Toolbar {
     for (const [name, b] of this.buttons) {
       switch (name) {
         case 'open':
+        case 'view-3d':
           break;
         case 'connect':
           b.disabled = s.connection !== 'idle';
@@ -171,6 +175,7 @@ export class Toolbar {
     }
     this.buttons.get('loop')?.setAttribute('aria-pressed', String(s.loop));
     this.buttons.get('live')?.setAttribute('aria-pressed', String(s.live));
+    this.buttons.get('view-3d')?.setAttribute('aria-pressed', String(s.view3d));
 
     this.frameLabel.textContent =
       has && s.frame ? `${cycleLabel(s.frame)} (${s.index + 1} / ${s.frameCount})` : '';

@@ -60,6 +60,19 @@ describe('parseJsonRcg', () => {
     ]);
   });
 
+  it('reads the ball height of the planned 2.5D simulator when it is there', () => {
+    const flying = JSON.stringify({
+      show: { time: 1, ball: { x: 1, y: 2, vx: 3, vy: 4, z: 1.5, vz: -0.2 }, players: [] },
+    });
+    const text = ['[', flying + ',', showLine(2, []), ']'].join('\n');
+    const { records, warnings } = parse(text);
+    expect(warnings).toEqual([]);
+    expect(shows(records).map((s) => s.ball)).toEqual([
+      { x: 1, y: 2, vx: 3, vy: 4, z: 1.5, vz: -0.2 },
+      { x: 1, y: 2, vx: 3, vy: 4 }, // on the ground: no z
+    ]);
+  });
+
   it('accepts a log without the closing bracket', () => {
     const text = '[\n' + showLine(1, []) + ',\n' + showLine(2, []) + ',\n';
     const { records, warnings } = parse(text);

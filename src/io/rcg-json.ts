@@ -226,7 +226,15 @@ function convertShow(body: unknown, sink: RecordSink, warn: Warn): void {
     warn(`show ${time}: no ball`);
     return;
   }
-  const ball: BallState = { x: num(b['x']), y: num(b['y']), vx: num(b['vx']), vy: num(b['vy']) };
+  const ball: BallState = {
+    x: num(b['x']),
+    y: num(b['y']),
+    vx: num(b['vx']),
+    vy: num(b['vy']),
+    // The height, for the planned 2.5D simulator (keys provisional).
+    ...(typeof b['z'] === 'number' ? { z: b['z'] } : {}),
+    ...(typeof b['vz'] === 'number' ? { vz: b['vz'] } : {}),
+  };
 
   const players: (PlayerState | undefined)[] = new Array<PlayerState | undefined>(2 * MAX_PLAYER);
   const list = body['players'];
