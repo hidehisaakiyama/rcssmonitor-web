@@ -12,7 +12,7 @@ rcssmonitor (Qt 版) の機能と、rcssmonitor-web での扱いをまとめた�
 | 既定の接続先に接続 (Ctrl+C) | main_window.cpp:295 | 4 | 未着手 | ブラウザのコピーと重なる。Phase 5 でキーを決める |
 | 接続先を指定して接続 (Connect to ...) | connect_dialog.cpp | 4 | 未着手 | host、port、path。トランスポートの選択はない (WebSocket のみ) |
 | 切断 (`(dispbye)`) | main_window.cpp:314 | 4 | 未着手 | |
-| ライブモード (Ctrl+L) | main_window.cpp:330 | 4 | 未着手 | ライブ中も過去に戻れる |
+| ライブモード (Ctrl+L) | main_window.cpp:330 | 4 | 作業中 | ライブ中も過去に戻れる。ツールバーのボタンと `Playback.setLive()` はある (ログでは末尾へ移る)。受信への追従は Phase 4 |
 | 起動時に自動接続 | options.cpp:218 | 4 | 未着手 | URL パラメータ `connect=1`。既定は接続しない |
 | 無通信 5 秒で切断 | monitor_client.cpp:319-338 | 4 | 未着手 | |
 | 自動再接続と待ち時間 | monitor_client.cpp:345-360 | 4 | 未着手 | |
@@ -78,18 +78,18 @@ rcssmonitor (Qt 版) の機能と、rcssmonitor-web での扱いをまとめた�
 
 | 機能 | rcssmonitor | Phase | 状態 | 備考 |
 |---|---|---|---|---|
-| ログを開く (Ctrl+O) | main_window.cpp:1743-1785 | 3 | 未着手 | ドラッグ＆ドロップも加える |
+| ログを開く (Ctrl+O) | main_window.cpp:1743-1785 | 3 | 済 | ボタンと Ctrl+O のほか、ドラッグ＆ドロップでも開ける。開くと全体表示に戻り、先頭で止まる |
 | JSON rcg、テキスト rcg v4〜v6、gzip | rcss/rcg/parser.cpp:56-131 | 1 | 済 | Worker で解析する。不正な行は飛ばして警告にする。テキスト rcg の `stime` は推定する |
 | バイナリ rcg v1〜v3 | rcss/rcg/parser_v1〜v3 | 将来 | 対象外 | |
-| 読み込みの進捗表示 | rcg_handler.cpp:59-123 | 1 | 作業中 | Worker から展開と解析の進捗を送る部分は済。表示は Phase 3 の画面で仕上げる |
-| 再生と停止 (Space) | main_window.cpp:327-473 | 3 | 未着手 | |
-| 1 フレーム送りと戻し (←、→、ホイール) | main_window.cpp:1315 | 3 | 未着手 | |
-| 速度の変更 (Ctrl+↑ / ↓、5〜5000 ms) | log_player.cpp:229-353 | 3 | 未着手 | |
-| 前後の得点へ移動 (G、Ctrl+G) | log_player.cpp:245-291 | 3 | 未着手 | 50 フレーム手前に移動する。`GameStore.scoreChanges` は得点が変わった最初のフレームを指す (rcssmonitor はその 1 つ前) |
-| 先頭と末尾 (Home、End) | main_window.cpp | 3 | 未着手 | |
-| フレーム位置のスライダー | log_player_slider.cpp:76-145 | 3 | 未着手 | |
-| ループ再生 | disp_holder.cpp:490-551 | 3 | 未着手 | |
-| サイクルを指定して移動 | (`goToCycle` は UI なし) | 3 | 未着手 | 入力欄を付ける |
+| 読み込みの進捗表示 | rcg_handler.cpp:59-123 | 1 | 済 | ステータスバーに展開と解析の進捗を出す |
+| 再生と停止 (Space) | main_window.cpp:327-473 | 3 | 済 | 再生を始め直すと既定の速さ (100 ms) に戻る (rcssmonitor と同じ) |
+| 1 フレーム送りと戻し (←、→、ホイール) | main_window.cpp:1315 | 3 | 済 | タッチパッドのホイールは 50 ピクセルごとに 1 フレーム進める |
+| 速度の変更 (Ctrl+↑ / ↓、5〜5000 ms) | log_player.cpp:229-353 | 3 | 済 | 再生中だけ効く。今の間隔をツールバーに出す。表示より短い間隔は 1 回の描画で複数フレーム進める |
+| 前後の得点へ移動 (G、Ctrl+G) | log_player.cpp:245-291 | 3 | 済 | 50 フレーム手前に移動する。rcssmonitor と同じフレームに着くよう、`scoreChanges` の 1 つ前から数える |
+| 先頭と末尾 (Home、End) | main_window.cpp | 3 | 済 | |
+| フレーム位置のスライダー | log_player_slider.cpp:76-145 | 3 | 済 | |
+| ループ再生 | disp_holder.cpp:490-551 | 3 | 済 | ツールバーのボタンで切り替える (rcssmonitor はコマンドラインのオプションだけ) |
+| サイクルを指定して移動 | (`goToCycle` は UI なし) | 3 | 済 | ツールバーの入力欄。そのサイクルがなければ次のサイクルへ移る |
 | 自動終了 (auto quit) | log_player.cpp:134-146 | — | 対象外 | ブラウザでは終了できない |
 
 ## 6. 設定とダイアログ

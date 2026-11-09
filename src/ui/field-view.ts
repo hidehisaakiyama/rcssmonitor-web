@@ -58,6 +58,8 @@ export class FieldView {
 
   /** Called with the field coordinates under the mouse, or null when it leaves. */
   onPointerField: ((p: Vec2 | null) => void) | null = null;
+  /** Called on every animation frame before drawing, with its timestamp. */
+  onTick: ((now: number) => void) | null = null;
 
   constructor(readonly view: ViewState) {
     this.element = document.createElement('div');
@@ -112,8 +114,9 @@ export class FieldView {
     this.element.remove();
   }
 
-  private readonly tick = () => {
+  private readonly tick = (now: number) => {
     this.frameRequest = requestAnimationFrame(this.tick);
+    this.onTick?.(now);
     if (this.dirty || (this.store !== null && this.store.revision !== this.drawnStoreRevision)) {
       this.draw();
     }

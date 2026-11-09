@@ -11,6 +11,11 @@
         --muted: #6e6e73;
         --bar: #f2f2f4;
         --border: #d2d2d7;
+        --button: #ffffff;
+        --button-hover: #e4e4e8;
+        --pressed: #cfe3ff;
+        --accent: #0a66d8;
+        --error: #c62828;
         --field: #1fa01f;
       }
       @media (prefers-color-scheme: dark) {
@@ -20,6 +25,11 @@
           --muted: #9a9aa0;
           --bar: #222225;
           --border: #3a3a3e;
+          --button: #2c2c30;
+          --button-hover: #3a3a3f;
+          --pressed: #23406b;
+          --accent: #5ea2ff;
+          --error: #ff6b6b;
         }
       }
       html,
@@ -52,7 +62,81 @@
         min-width: 0;
       }
       .toolbar {
+        flex-wrap: wrap;
+        row-gap: 4px;
         border-bottom-width: 1px;
+      }
+      .toolbar-group {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+      }
+      .toolbar-slider {
+        flex: 1;
+        gap: 8px;
+        min-width: 160px;
+      }
+      .tool-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 26px;
+        padding: 0;
+        color: var(--fg);
+        background: var(--button);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      .tool-button:hover:not(:disabled) {
+        background: var(--button-hover);
+      }
+      .tool-button[aria-pressed='true'] {
+        background: var(--pressed);
+        border-color: var(--accent);
+      }
+      .tool-button:disabled {
+        opacity: 0.4;
+        cursor: default;
+      }
+      .tool-button:focus-visible,
+      #cycle-input:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 1px;
+      }
+      #cycle-input {
+        width: 5.5em;
+        padding: 2px 4px;
+        color: var(--fg);
+        background: var(--button);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        font: inherit;
+      }
+      #cycle-input.invalid {
+        border-color: var(--error);
+      }
+      .speed-label {
+        min-width: 4.5em;
+        text-align: right;
+        color: var(--muted);
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+      #app.drop-target .field-view::after {
+        content: 'Drop a game log to open it';
+        position: absolute;
+        inset: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 3px dashed #ffffff;
+        border-radius: 8px;
+        background: rgba(0, 0, 0, 0.35);
+        color: #ffffff;
+        font-size: 20px;
+        pointer-events: none;
       }
       .statusbar {
         border-top-width: 1px;
@@ -61,6 +145,7 @@
       #frame-slider {
         flex: 1;
         min-width: 80px;
+        accent-color: var(--accent);
       }
       .frame-label,
       .mouse-pos {
