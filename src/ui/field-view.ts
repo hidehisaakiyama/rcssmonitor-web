@@ -65,6 +65,13 @@ export class FieldView {
   onPointerField: ((p: Vec2 | null) => void) | null = null;
   /** Called on every animation frame before drawing, with its timestamp. */
   onTick: ((now: number) => void) | null = null;
+  /**
+   * The frame and the fraction of the way to the next one for the 3D view,
+   * which interpolates (the 2D view shows the frame index as it is).
+   */
+  position: (() => { index: number; alpha: number }) | null = null;
+  /** True while the 3D view should be drawn on every frame (playing, live). */
+  animate: (() => boolean) | null = null;
 
   constructor(readonly view: ViewState) {
     this.element = document.createElement('div');
@@ -151,7 +158,13 @@ export class FieldView {
   private readonly tick = (now: number) => {
     this.frameRequest = requestAnimationFrame(this.tick);
     this.onTick?.(now);
-    if (this.dirty || (this.store !== null && this.store.revision !== this.drawnStoreRevision)) {
+    const r = this.rendererValue;
+    const moving = r.kind === '3d' && ((this.animate?.() ?? false) || (r.animating?.() ?? false));
+    if (
+      this.dirty ||
+      moving ||
+      (this.store !== null && this.store.revision !== this.drawnStoreRevision)
+    ) {
       this.draw();
     }
   };
@@ -173,11 +186,19 @@ export class FieldView {
 
   private scene(): SceneSnapshot | null {
     const store = this.store;
-    const frame = store?.frame(this.index);
-    if (!store || !frame) {
+    if (!store || store.frameCount === 0) {
       return null;
     }
-    return { store, frameIndex: this.index, frame, next: store.frame(this.index + 1), alpha: 0 };
+    const pos =
+      this.rendererValue.kind === '3d' && this.position
+        ? this.position()
+        : { index: this.index, alpha: 0 };
+    const i = Math.max(0, Math.min(pos.index, store.frameCount - 1));
+    const frame = store.frame(i);
+    if (!frame) {
+      return null;
+    }
+    return { store, frameIndex: i, frame, next: store.frame(i + 1), alpha: pos.alpha };
   }
 
   private draw(): void {

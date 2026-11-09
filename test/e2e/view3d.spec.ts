@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import type { ViewState } from '../../src/view/view-state';
-import { loadLog, openApp, requireBuild } from './helpers';
+import { ReplayServer } from '../../tools/replay-server/replay-server';
+import { fixture, loadLog, openApp, requireBuild } from './helpers';
 
 // Phase 6: the 3D view. Headless browsers draw WebGL in software, so these
 // tests check the state of the scene, not its pixels.
@@ -13,8 +14,14 @@ interface Renderer {
     ball: { visible: boolean; x: number; y: number; z: number };
     shadow: { visible: boolean; x: number; y: number; z: number };
     players: number;
+    rings: number;
+    cards: number;
+    viewAreas: number;
+    camera: { mode: string; position: { x: number; y: number; z: number } };
+    frameIndex: number;
     drawCalls: number;
   };
+  fieldToScreen?(x: number, y: number): { x: number; y: number } | null;
 }
 
 interface Hook {
@@ -134,4 +141,114 @@ test('keeps the referee menu and the mouse position in 3D', async ({ page }) => 
   await page.mouse.wheel(0, 300);
   await page.waitForTimeout(200);
   await expect(page.locator('#frame-label')).toHaveText('1 (1 / 267)');
+});
+
+test('interpolates between two frames', async ({ page }) => {
+  await openApp(page);
+  await page.keyboard.press('d');
+  await wait3d(page);
+  await page.setInputFiles('#rcg-file', {
+    name: 'flying.rcg',
+    mimeType: 'application/json',
+    buffer: Buffer.from(FLYING_BALL),
+  });
+  await expect(page.locator('#load-result')).toContainText('2 frames');
+  // Halfway from frame 1 (x 10, 3 m up) to frame 2 (x 10.5, on the ground).
+  await hook(page, (h) => {
+    const field = h.field as unknown as {
+      position: () => { index: number; alpha: number };
+      renderNow(): void;
+    };
+    field.position = () => ({ index: 0, alpha: 0.5 });
+    field.renderNow();
+  });
+  const s = await scene(page);
+  expect(s?.ball.x).toBeCloseTo(10.25);
+  expect(s?.ball.y).toBeCloseTo(1.5 + 0.35);
+});
+
+test('switches the cameras', async ({ page }) => {
+  await openApp(page);
+  await loadLog(page, 'json-sample.rcg.gz');
+  await page.keyboard.press('d');
+  await wait3d(page);
+  const camera = async () => (await scene(page))?.camera;
+  await expect.poll(async () => (await camera())?.mode).toBe('broadcast');
+  await expect(page.locator('#camera-select')).toHaveValue('broadcast');
+
+  await page.locator('#menu-view').click();
+  await page.locator('#view-camera').hover();
+  await page.locator('#view-camera-top').click();
+  await expect.poll(async () => (await camera())?.mode).toBe('top');
+  // The whole pitch is in view from above.
+  const corners = await hook(page, (h) =>
+    [-52.5, 52.5].flatMap((x) => [-34, 34].map((y) => h.field.renderer.fieldToScreen?.(x, y))),
+  );
+  const box = await page.locator('.field-view').boundingBox();
+  for (const c of corners) {
+    expect(c?.x).toBeGreaterThan(0);
+    expect(c?.x).toBeLessThan(box?.width ?? 0);
+    expect(c?.y).toBeGreaterThan(0);
+    expect(c?.y).toBeLessThan(box?.height ?? 0);
+  }
+
+  await page.keyboard.press('e'); // next: behind the left goal
+  await expect(page.locator('#camera-select')).toHaveValue('goal-left');
+
+  // The player camera: a hint without a selected player, then its eyes.
+  await page.locator('#camera-select').selectOption('player');
+  await expect(page.locator('#status-message')).toContainText('Select a player');
+  await page.keyboard.press('5');
+  const eye = await hook(page, (h) => {
+    const p = (
+      h.field as unknown as {
+        gameStore: { frame(i: number): { players: { x: number; y: number }[] } };
+      }
+    ).gameStore.frame(h.field.frameIndex).players[4];
+    return { x: p?.x, y: p?.y };
+  });
+  await expect
+    .poll(async () => (await camera())?.position)
+    .toEqual({ x: eye.x, y: 1.65, z: eye.y });
+
+  // Dragging the broadcast camera makes it free.
+  await page.locator('#camera-select').selectOption('broadcast');
+  const fb = await page.locator('.field-view').boundingBox();
+  if (!fb) {
+    throw new Error('no field view');
+  }
+  await page.mouse.move(fb.x + fb.width / 2, fb.y + fb.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(fb.x + fb.width / 2 + 80, fb.y + fb.height / 2, { steps: 5 });
+  await page.mouse.up();
+  await expect(page.locator('#camera-select')).toHaveValue('free');
+  // The choice is kept.
+  await page.reload();
+  await wait3d(page);
+  await expect(page.locator('#camera-select')).toHaveValue('free');
+});
+
+test('shows a live game one cycle behind, to move smoothly', async ({ page }) => {
+  const server = await ReplayServer.fromFile(fixture('json-sample.rcg.gz'), {
+    host: '127.0.0.1',
+    interval: 200,
+  });
+  try {
+    const port = await server.listen();
+    await openApp(page, `?connect=1&host=127.0.0.1&port=${port}`);
+    await expect(page.locator('#connection-status')).toContainText('Connected');
+    await page.keyboard.press('d');
+    await wait3d(page);
+    await expect
+      .poll(() =>
+        hook(page, (h) => {
+          const r = h.field.renderer.inspect?.();
+          const count = (h.playback as unknown as { frameCount: number }).frameCount;
+          return count >= 3 && r?.frameIndex === count - 2;
+        }),
+      )
+      .toBe(true);
+  } finally {
+    await server.close();
+  }
 });

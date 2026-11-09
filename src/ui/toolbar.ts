@@ -4,6 +4,7 @@
 // and Kick Off from the Monitor and Referee menus.
 import type { Frame } from '../core/frame';
 import type { LiveState } from '../io/live/client';
+import { CAMERA_LABELS, CAMERA_MODES, type CameraMode } from '../view/render3d/cameras';
 import { ICONS, type IconName } from './icons';
 import { CTRL_LABEL } from './shortcuts';
 
@@ -22,6 +23,7 @@ export interface ToolbarActions {
   nextScore(): void;
   toggleLoop(): void;
   toggle3d(): void;
+  setCamera(mode: CameraMode): void;
   seek(index: number): void;
   /** Returns false if the log has no such cycle. */
   goToCycle(cycle: number): boolean;
@@ -37,6 +39,7 @@ export interface ToolbarState {
   readonly live: boolean;
   readonly connection: LiveState;
   readonly view3d: boolean;
+  readonly camera: CameraMode;
 }
 
 const CTRL = CTRL_LABEL;
@@ -53,6 +56,7 @@ export class Toolbar {
   private readonly frameLabel: HTMLSpanElement;
   private readonly cycleInput: HTMLInputElement;
   private readonly speedLabel: HTMLSpanElement;
+  private readonly cameraSelect: HTMLSelectElement;
 
   constructor(private readonly actions: ToolbarActions) {
     const el = (tag: string, cls = '') => {
@@ -101,6 +105,19 @@ export class Toolbar {
       this.button('loop', 'loop', 'Loop playback', () => actions.toggleLoop()),
       this.button('view-3d', 'view3d', '3D view (D)', () => actions.toggle3d()),
     );
+    this.cameraSelect = document.createElement('select');
+    this.cameraSelect.id = 'camera-select';
+    this.cameraSelect.className = 'camera-select';
+    this.cameraSelect.title = '3D camera (E: next)';
+    this.cameraSelect.setAttribute('aria-label', '3D camera');
+    for (const mode of CAMERA_MODES) {
+      this.cameraSelect.append(new Option(CAMERA_LABELS[mode], mode));
+    }
+    this.cameraSelect.addEventListener('change', () => {
+      actions.setCamera(this.cameraSelect.value as CameraMode);
+      this.cameraSelect.blur(); // the keys go back to the player
+    });
+    g.append(this.cameraSelect);
 
     this.slider = document.createElement('input');
     Object.assign(this.slider, {
@@ -176,6 +193,8 @@ export class Toolbar {
     this.buttons.get('loop')?.setAttribute('aria-pressed', String(s.loop));
     this.buttons.get('live')?.setAttribute('aria-pressed', String(s.live));
     this.buttons.get('view-3d')?.setAttribute('aria-pressed', String(s.view3d));
+    this.cameraSelect.hidden = !s.view3d;
+    this.cameraSelect.value = s.camera;
 
     this.frameLabel.textContent =
       has && s.frame ? `${cycleLabel(s.frame)} (${s.index + 1} / ${s.frameCount})` : '';

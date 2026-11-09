@@ -13,7 +13,13 @@ import {
 } from '../options/connection';
 import { DEFAULT_APP_SETTINGS, SettingsStore, type AppSettings } from '../options/settings';
 import { Playback } from '../playback/playback';
-import type { FieldRenderer } from '../view/renderer';
+import {
+  CAMERA_LABELS,
+  CAMERA_MODES,
+  nextCameraMode,
+  type CameraMode,
+} from '../view/render3d/cameras';
+import type { Render3D } from '../view/render3d/render3d';
 import { ViewState } from '../view/view-state';
 import { ContextMenu, type MenuItem } from './context-menu';
 import { ConfigDialog } from './dialogs/config-dialog';
@@ -62,7 +68,10 @@ export class App {
   private wheelDelta = 0;
   private saveTimer: ReturnType<typeof setTimeout> | undefined;
   /** The 3D renderer, loaded the first time it is shown. */
-  private render3d: Promise<FieldRenderer> | null = null;
+  private render3d: Promise<Render3D> | null = null;
+  /** When the newest frame arrived (performance.now()), for the live 3D view. */
+  private lastFrameAt = 0;
+  private lastFrameCount = 0;
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -97,6 +106,7 @@ export class App {
         this.updateToolbar();
       },
       toggle3d: () => void this.toggle3d(),
+      setCamera: (mode) => this.setCamera(mode),
       seek: (i) => p.goToIndex(i),
       goToCycle: (c) => p.goToCycle(c),
     });
@@ -159,6 +169,8 @@ export class App {
       this.updateToolbar();
     });
     this.field.onTick = (now) => this.tick(now);
+    this.field.position = () => this.scenePosition();
+    this.field.animate = () => this.playback.playing || this.playback.live;
     this.field.onPointerField = (pos) => {
       this.status.setMousePos(pos ? `(${pos.x.toFixed(2)}, ${pos.y.toFixed(2)})` : '');
     };
@@ -239,7 +251,17 @@ export class App {
       this.updateToolbar();
       return;
     }
-    this.render3d ??= import('../view/render3d/render3d').then((m) => new m.Render3D());
+    this.render3d ??= import('../view/render3d/render3d').then((m) => {
+      const r = new m.Render3D();
+      r.setCameraMode(this.settings.camera3d);
+      // A drag makes the broadcast or goal camera free.
+      r.onCameraModeChange = (mode) => {
+        this.settings.camera3d = mode;
+        this.settingsChanged();
+        this.updateToolbar();
+      };
+      return r;
+    });
     try {
       this.field.setRenderer(await this.render3d);
     } catch (e) {
@@ -294,6 +316,48 @@ export class App {
     clearTimeout(this.saveTimer);
     this.saveTimer = undefined;
     this.settingsStore.save();
+  }
+
+  /** Chooses the 3D camera (View > 3D Camera, the tool bar, E). */
+  setCamera(mode: CameraMode): void {
+    this.settings.camera3d = mode;
+    this.settingsChanged();
+    void this.render3d?.then((r) => r.setCameraMode(mode));
+    if (mode === 'player' && !this.view.selected) {
+      this.status.showMessage(
+        'Select a player (1-9, 0, - for the left team, with Ctrl for the right) to see with its eyes.',
+        5000,
+      );
+    }
+    this.updateToolbar();
+  }
+
+  private nextCamera(): void {
+    if (this.is3d) {
+      this.setCamera(nextCameraMode(this.settings.camera3d));
+      this.status.showMessage(`Camera: ${CAMERA_LABELS[this.settings.camera3d]}`, 2000);
+    } else {
+      this.status.showMessage('The cameras are for the 3D view (D).', 3000);
+    }
+  }
+
+  /**
+   * The frame the 3D view shows and the fraction of the way to the next one.
+   * Live, it shows the frame before the newest, moving toward the newest
+   * over one simulation step: one cycle late, but smooth (§4.3).
+   */
+  private scenePosition(): { index: number; alpha: number } {
+    const p = this.playback;
+    const store = p.store;
+    if (!store) {
+      return { index: 0, alpha: 0 };
+    }
+    if (p.live && store.frameCount >= 2) {
+      const step = store.serverParam.simulator_step || 100;
+      const alpha = Math.min(1, (performance.now() - this.lastFrameAt) / step);
+      return { index: store.frameCount - 2, alpha };
+    }
+    return p.position();
   }
 
   // ---- menus (MainWindow::createMenus)
@@ -379,6 +443,19 @@ export class App {
         shortcut: 'D',
         checked: this.is3d,
         action: () => void this.toggle3d(),
+      },
+      {
+        kind: 'submenu',
+        id: 'view-camera',
+        label: '3D Camera',
+        disabled: !this.is3d,
+        title: this.is3d ? 'E: the next camera' : 'For the 3D view (D)',
+        items: CAMERA_MODES.map((mode) => ({
+          id: `view-camera-${mode}`,
+          label: CAMERA_LABELS[mode],
+          checked: this.settings.camera3d === mode,
+          action: () => this.setCamera(mode),
+        })),
       },
       { kind: 'separator' },
       {
@@ -526,6 +603,10 @@ export class App {
 
   private tick(now: number): void {
     const store = this.playback.store;
+    if (store && store.frameCount !== this.lastFrameCount) {
+      this.lastFrameCount = store.frameCount;
+      this.lastFrameAt = now;
+    }
     if (store && store.revision !== this.storeRevision) {
       this.storeRevision = store.revision;
       this.playback.framesAdded();
@@ -547,6 +628,7 @@ export class App {
       live: p.live,
       connection: this.live.state,
       view3d: this.is3d,
+      camera: this.settings.camera3d,
     });
   }
 
@@ -566,6 +648,7 @@ export class App {
     const windowKeys = {
       open: () => this.fileInput.click(),
       toggle3d: () => void this.toggle3d(),
+      nextCamera: () => this.nextCamera(),
       toggleMenuBar: () => this.toggleBar('showMenuBar'),
       playerTypes: () => this.playerTypes.panel.toggle(),
       preference: () => this.config.panel.toggle(),

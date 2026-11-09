@@ -14,6 +14,7 @@ import {
   type Fonts,
   type Palette,
 } from '../view/palette';
+import { CAMERA_MODES, type CameraMode } from '../view/render3d/cameras';
 import { DEFAULT_VIEW_OPTIONS, type ViewOptions } from '../view/view-state';
 import { readSetting, writeSetting } from './storage';
 
@@ -31,6 +32,8 @@ export interface AppSettings {
   canvasHeight: number;
   /** The 3D view instead of the 2D one (not in rcssmonitor). */
   view3d: boolean;
+  /** The camera of the 3D view. */
+  camera3d: CameraMode;
 }
 
 export const DEFAULT_APP_SETTINGS: Readonly<AppSettings> = Object.freeze({
@@ -42,6 +45,7 @@ export const DEFAULT_APP_SETTINGS: Readonly<AppSettings> = Object.freeze({
   canvasWidth: 0,
   canvasHeight: 0,
   view3d: false,
+  camera3d: 'broadcast',
 });
 
 /** What the settings apply to. */
@@ -69,6 +73,13 @@ type Entry =
       readonly get: (t: SettingTargets) => number;
       readonly set: (t: SettingTargets, v: number) => void;
     } & NumberRange)
+  | {
+      readonly key: string;
+      readonly kind: 'choice';
+      readonly values: readonly string[];
+      readonly get: (t: SettingTargets) => string;
+      readonly set: (t: SettingTargets, v: string) => void;
+    }
   | { readonly key: string; readonly kind: 'color'; readonly name: keyof Palette }
   | { readonly key: string; readonly kind: 'font'; readonly name: keyof Fonts };
 
@@ -123,6 +134,15 @@ export const SETTINGS: readonly Entry[] = [
   appNumber('canvas_height', 'canvasHeight', { min: 0, max: 3000, integer: true }),
   // Not in rcssmonitor.
   appBool('view_3d', 'view3d'),
+  {
+    key: 'camera_3d',
+    kind: 'choice',
+    values: CAMERA_MODES,
+    get: (t) => t.app.camera3d,
+    set: (t, v) => {
+      t.app.camera3d = v as CameraMode;
+    },
+  },
 
   viewBool('show_score_board', 'showScoreBoard'),
   viewBool('show_team_graphic', 'showTeamGraphic'),
@@ -212,6 +232,7 @@ export function getSetting(t: SettingTargets, e: Entry): SettingValue {
   switch (e.kind) {
     case 'bool':
     case 'number':
+    case 'choice':
       return e.get(t);
     case 'color':
       return t.colors[e.name];
@@ -268,6 +289,12 @@ export function setSetting(t: SettingTargets, key: string, value: unknown): bool
       }
       e.set(t, value);
       return true;
+    case 'choice':
+      if (typeof value !== 'string' || !e.values.includes(value)) {
+        return false;
+      }
+      e.set(t, value);
+      return true;
     case 'color':
       if (!isColor(value)) {
         return false;
@@ -313,6 +340,8 @@ export function parseSettingText(key: string, text: string): SettingValue | unde
       const n = Number(text.trim());
       return text.trim() !== '' && Number.isFinite(n) ? n : undefined;
     }
+    case 'choice':
+      return e.values.includes(text.trim()) ? text.trim() : undefined;
     case 'color': {
       const c = text.trim().replace(/^#?/, '#');
       return isColor(c) ? c.toLowerCase() : undefined;

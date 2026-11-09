@@ -4,18 +4,8 @@ import { formatG } from '../../core/number-format';
 import {
   hasRedCard,
   hasYellowCard,
-  isAlive,
-  isCatching,
-  isCatchingFault,
-  isCollidedBall,
-  isCollidedPlayer,
-  isFoulCharged,
   isGoalie,
   isIllegalDefense,
-  isKicking,
-  isKickingFault,
-  isTackling,
-  isTacklingFault,
   type BallState,
   type Frame,
   type PlayerState,
@@ -31,6 +21,7 @@ import {
 } from '../../core/geometry';
 import type { PlayerType, ServerParam } from '../../core/params';
 import { cssFont, darker } from '../palette';
+import { playerStyle } from '../player-style';
 import type { ViewState } from '../view-state';
 import type { QtPainter } from './qt-painter';
 import type { Viewport } from './viewport';
@@ -114,84 +105,30 @@ function drawAll(c: PlayerPaintContext, player: PlayerState, ball: BallState): v
 
 function drawBody(c: PlayerPaintContext, param: Param, selected: boolean): void {
   const { p, view, sp } = c;
-  const colors = view.colors;
-  const player = param.player;
+  const style = playerStyle(view.colors, view.options, sp, param.type, param.player, selected);
 
-  // base color
-  p.setPen(selected ? { color: colors.playerPen, width: 2 } : colors.playerPen);
-  if (player.side === Side.Left) {
-    p.setBrush(isGoalie(player) ? colors.leftGoalie : colors.leftTeam);
-  } else if (player.side === Side.Right) {
-    p.setBrush(isGoalie(player) ? colors.rightGoalie : colors.rightTeam);
-  } else {
-    p.setBrush('#000000');
-  }
-
-  // state color
-  if (!isAlive(player)) {
-    p.setBrush('#000000');
-  }
-  if (isIllegalDefense(player) && view.options.showIllegalDefense) {
-    p.setPen({ color: colors.illegalDefense, width: 2 });
-  }
-  if (isKicking(player)) {
-    p.setPen({ color: colors.kick, width: 2 });
-  }
-  if (isKickingFault(player)) {
-    p.setBrush(colors.kickFault);
-  }
-  if (isCatching(player)) {
-    p.setBrush(colors.catch);
-  }
-  if (isCatchingFault(player)) {
-    p.setBrush(colors.catchFault);
-  }
-  if (isTackling(player)) {
-    p.setPen({ color: colors.tackle, width: 2 });
-    p.setBrush(colors.tackle);
-  }
-  if (isTacklingFault(player)) {
-    p.setPen({ color: colors.tackle, width: 2 });
-    p.setBrush(colors.tackleFault);
-  }
-  if (isFoulCharged(player)) {
-    p.setBrush(colors.foulCharged);
-  }
-  if (isCollidedBall(player)) {
-    p.setBrush(colors.ballCollide);
-  }
-  if (isCollidedPlayer(player)) {
-    p.setBrush(colors.playerCollide);
-  }
-
+  // The outer circle in the team or state color.
+  p.setPen(style.pen);
+  p.setBrush(style.brush);
   const r = param.drawRadius;
   p.drawEllipse(param.x - r, param.y - r, r * 2, r * 2);
 
   // Stamina: the body circle gets darker as stamina goes down.
-  const staminaRate = player.stamina / sp.stamina_max;
-  let darkRate = 200 - rint(200 * rint(staminaRate / 0.125) * 0.125);
-  darkRate = Math.max(0, darkRate - 50);
-  const brush = p.currentBrush() ?? '#000000';
   p.setPen(null);
-  p.setBrush(darkRate === 0 ? brush : darker(brush, 100 + darkRate));
+  p.setBrush(style.body);
   const br = param.bodyRadius;
   p.drawEllipse(param.x - br, param.y - br, br * 2, br * 2);
 
   // A ring when effort or recovery has decayed.
-  if (Math.abs(param.type.effort_max - player.effort) >= 1.0e-5) {
+  if (style.decay) {
     const rr = r + 2;
-    p.setPen(colors.effortDecayed);
-    p.setBrush(null);
-    p.drawEllipse(param.x - rr, param.y - rr, rr * 2, rr * 2);
-  } else if (Math.abs(1.0 - player.recovery) >= 1.0e-5) {
-    const rr = r + 2;
-    p.setPen(colors.recoveryDecayed);
+    p.setPen(style.decay);
     p.setBrush(null);
     p.drawEllipse(param.x - rr, param.y - rr, rr * 2, rr * 2);
   }
 
   // real body edge
-  p.setPen(colors.playerPen);
+  p.setPen(view.colors.playerPen);
   p.setBrush(null);
   p.drawEllipse(param.x - br, param.y - br, br * 2, br * 2);
 }

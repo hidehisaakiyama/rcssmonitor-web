@@ -24,6 +24,8 @@ export interface FieldRenderer {
   attach?(element: HTMLElement): void;
   /** Stops taking the mouse. */
   detach?(): void;
+  /** True while the renderer wants to be drawn on every frame (a camera moving). */
+  animating?(): boolean;
   /** Size in CSS pixels and the device pixel ratio. */
   resize(width: number, height: number, dpr: number): void;
   /** Draws a scene, or only the field when no log is open. */

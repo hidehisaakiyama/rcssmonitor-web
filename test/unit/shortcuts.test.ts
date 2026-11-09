@@ -25,6 +25,7 @@ function handled(k: KeySpec): boolean {
   const actions = {
     open: noop,
     toggle3d: noop,
+    nextCamera: noop,
     toggleMenuBar: noop,
     playerTypes: noop,
     preference: noop,
