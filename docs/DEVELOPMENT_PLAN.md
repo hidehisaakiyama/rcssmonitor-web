@@ -28,6 +28,7 @@ asio 版 rcssserver が TCP / WebSocket での接続に対応し、rcssmonitor �
 | ログ形式 | JSON rcg とテキスト rcg v4〜v6 (gzip 可)。バイナリ v1〜v3 は対象外 |
 | 配布 | (a) file:// で開ける単一 HTML をリリースに添付 (LAN 接続用)<br>(b) GitHub Pages (localhost 接続とログ再生用) |
 | テスト | Vitest (単体)、Playwright (E2E、Chromium と Firefox) |
+| 版番号 | メジャーを rcssserver にそろえ、対応するサーバ (プロトコル) を示す。asio 版の rcssserver は 20 として出る予定なので 20。正式版の前のベータは `20.0.0-beta.N` (2026-11-09 に決定) |
 
 ## 3. 設計に効くサーバ側の仕様
 
@@ -266,21 +267,28 @@ interface FieldRenderer {
 
 **完了条件**: `docs/parity.md` の対象項目がすべて「済」か「対象外」になる。リリースのワークフローと手順がそろう。
 
-### v1.0 のリリース (Phase 5 と Phase 6 の間)
+### プレリリース 20.0.0-beta.1 (個人リポジトリ)
 
-タグの push で公開され、取り消しが利かないので、Phase 5 から分けた。
+タグの push で公開され、取り消しが利かないので、Phase 5 から分けた。まず個人リポジトリでベータとして公開し、試してもらう。
 
 **作業**
-- rcsoccersim の Organization への移転とリリースの、どちらを先にするかを決める。Pages の URL は移転で変わり、古い URL からは転送されないので、広く告知するなら移転を先にする (`docs/release.md`)。
-- GitHub の設定をする。Pages の Source を「GitHub Actions」にし、`github-pages` 環境にタグの規則 `v*` を加える。移転した場合は、README と About のリンクを新しい場所に書き換える。
-- 公開の前に、手で確かめる。
+- GitHub の設定をする。Pages の Source を「GitHub Actions」にし、`github-pages` 環境にタグの規則 `v*` を加える (2026-11-09 にユーザが設定済み)。
+- タグ `v20.0.0-beta.1` を付けて push し、Pre-release の印の付いたリリースと、その添付ファイル、Pages を確かめる (`docs/release.md`)。
+
+**完了条件**: タグ `v20.0.0-beta.1` の Pre-release に単一 HTML と dist の zip が添付され、Pages (`https://hidehisaakiyama.github.io/rcssmonitor-web/`) が公開される。
+
+### 正式リリース 20.0.0 (rcsoccersim の Organization へ移転した後)
+
+**作業**
+- 公開の前に、手で確かめる (ベータの段階では環境の準備が要るので後回しにした)。
   - ふだん使うブラウザ (Chrome、Firefox。可能なら Safari も) で、ブラウザの機能と重なるキーを横取りできるか。対象は Ctrl+1〜0、Ctrl+-、Ctrl+L / K / H / M / S / P / F、F11 (`docs/parity.md` §8)。
   - LAN 内の別のマシンから、単一 HTML で接続できるか。
-- タグ `v1.0.0` を付けて push し、リリースの添付ファイルと Pages を確かめる (`docs/release.md`)。
-- 公開の後に、Pages 版から localhost のサーバに接続できるかを確かめる (Chrome のローカルネットワークの許可を含む)。
-- README の「準備中」の注記を消す。
+  - Pages 版から localhost のサーバに接続できるか (Chrome のローカルネットワークの許可を含む)。
+- リポジトリを移す。Pages の URL は変わり、古い URL からは転送されない (`docs/release.md` の「リポジトリを移したとき」)。移した先で GitHub の設定を確かめ、README、`docs/`、About のリンクを新しい場所に書き換える。
+- 版を 20.0.0 にし、README のベータの注記を消し、リリースノートを書く。
+- タグ `v20.0.0` を付けて push し、リリースの添付ファイルと、新しい場所の Pages を確かめる。
 
-**完了条件**: v1.0.0 のタグが付き、単一 HTML と dist の zip がリリースに添付され、Pages が公開される。上の手動の確認の結果を §9 に記録する。
+**完了条件**: rcsoccersim/rcssmonitor-web でタグ `v20.0.0` のリリースに単一 HTML と dist の zip が添付され、Pages が公開される。上の手動の確認の結果を §9 に記録する。
 
 ### Phase 6: 3D 表示
 
@@ -296,7 +304,7 @@ interface FieldRenderer {
 
 **完了条件**: 1920×1080 で 60 fps を保てる。2D と 3D を切り替えても選択状態や再生位置が保たれる。
 
-### 将来の拡張 (rcssmonitor にない機能。v1.0 の対象外)
+### 将来の拡張 (rcssmonitor にない機能。初回の正式リリース 20.0.0 の対象外)
 
 - ドラッグで選手を移動する (`(dispplayer SIDE UNUM X Y ANG)`。ANG は 16 倍せず整数の度で送る)。
 - ボールや選手の軌跡表示、msg の一覧パネル、`stime` の表示。
@@ -450,7 +458,7 @@ asio 版サーバで見つかった問題 (サーバ側で対応を検討する)
 | `ws_allowed_origins='http://example.invalid,null'` | 接続できた |
 | rcssmonitor (Qt 版、ws) との比較 | 同じサーバにつなぎ、キックオフ前の画面を比べた。選手の位置、ロゴ、スコアボードは一致した。違いは、2 枚を撮る間に変わった体の向きと、Phase 2 と同じフォントの字形だけ |
 
-- まだ確かめていないこと: LAN 内の別のマシンからの接続、Pages 版から localhost への接続。どちらも v1.0 のリリースの段階で確かめる (Pages はそのとき公開する)。
+- まだ確かめていないこと: LAN 内の別のマシンからの接続、Pages 版から localhost への接続。どちらも正式リリース 20.0.0 の前に確かめる (§5)。
 
 **計画からの変更と、実装で決めたこと**
 - 接続部 `LiveClient` (`src/io/live/client.ts`) は DOM に依存しない。そのため、単体テストで Node の WebSocket から擬似サーバにつないで試せる。
@@ -481,7 +489,7 @@ asio 版サーバで見つかった問題 (サーバ側で対応を検討する)
 ### Phase 5 (2026-11-09)
 
 **完了条件の確認**
-- `docs/parity.md` の項目はすべて「済」か「対象外」になった。「将来」とした 2 項目 (選手のドラッグ移動、軌跡) は v1.0 の対象外とした。
+- `docs/parity.md` の項目はすべて「済」か「対象外」になった。「将来」とした 2 項目 (選手のドラッグ移動、軌跡) は、初回の正式リリース 20.0.0 の対象外とした。
 - キー割り当ての互換表を `docs/parity.md` の §8 に書いた。rcssmonitor のキーには、ブラウザが予約していて横取りできないもの (Ctrl+N / T / W、Ctrl+Tab など) がないので、代わりのキーは要らなかった。
 - リリースのワークフロー (`.github/workflows/release.yml`) と手順 (`docs/release.md`) を用意した。
   - 版の確認と添付ファイルの作成は手元で試した。ワークフロー自体は GitHub 上でしか動かないので、最初のタグのときに確かめる。
@@ -494,7 +502,9 @@ asio 版サーバで見つかった問題 (サーバ側で対応を検討する)
 - E2E テスト (Chromium と Firefox) で、メニューバー (マウスと矢印キー)、バーの表示切替と保存、設定ダイアログの 4 タブ (変更の反映、キー操作への追従、再読み込み後の保存)、URL パラメータ、選手タイプ一覧の並べ替え、ショートカット一覧と About、全画面を確かめた。
 
 **計画からの変更と、実装で決めたこと**
-- v1.0 のタグ付け、リリースへの添付、Pages の公開を Phase 5 から分け、次の段階「v1.0 のリリース」(§5) にした。公開は取り消しが利かず、Organization への移転との順番も決める必要があるため。Phase 4 で Phase 5 に回した確認 (ふだん使うブラウザでのキーの横取り) も、その段階で行う。
+- タグ付け、リリースへの添付、Pages の公開を Phase 5 から分けた。公開は取り消しが利かず、Organization への移転との順番も決める必要があるため。
+  - その後、版のメジャーを rcssserver にそろえることにした (§2)。個人リポジトリで 20.0.0-beta.1 をプレリリースし、移転した後に 20.0.0 を正式に出す (§5)。
+  - Phase 4 で Phase 5 に回した確認 (ふだん使うブラウザでのキーの横取り) は、正式リリースの前に行う。
 - 設定の項目名は rcssmonitor の設定名に合わせた (`show_player_number`、`field_brush`、`score_board_font` など)。保存先は localStorage で、URL パラメータも同じ名前で受け付ける (`-` 区切りでも書ける)。
   - URL で指定した値はそのページにだけ効き、保存しない。その後にユーザが変えた項目は保存する。共有されたリンクを開いても、開いた人の設定は変わらない。rcssmonitor は終了時に、コマンドラインで指定した値も保存する。
 - 設定ダイアログ、選手タイプ一覧、ショートカット一覧は、rcssmonitor と同じく開いたまま操作できるウインドウ (モーダルでない `<dialog>`) にした。見出しをドラッグして動かせ、Escape で閉じる。
@@ -505,6 +515,6 @@ asio 版サーバで見つかった問題 (サーバ側で対応を検討する)
   - Anti Aliasing と Draw Info は置かない。
 - メニューバーは rcssmonitor の 5 つのメニュー (Quit、Window Style、About Qt を除く) と同じ。Phase 4 でツールバーに置いた接続、切断、キックオフのボタンは残した。
 - 全画面は Fullscreen API で、ブラウザの決まりにより Escape でも戻る。
-- About には版 (package.json) とビルドのコミットを出す。版は 1.0.0 にした。
+- About には版 (package.json) とビルドのコミットを出す。版は 20.0.0-beta.1 にした (§2)。
 - 直した rcssmonitor の不具合: "Fix" が Auto right になる、Illegal Defense の色の初期値、選手タイプ一覧で数値が 2 つある列が並べ替わらない。
 - メニューバーの高さを整数の画素にした。小数だとその下のフィールドが画素の境目からずれ、スクリーンショットのテストの大きさが 1 画素変わった。

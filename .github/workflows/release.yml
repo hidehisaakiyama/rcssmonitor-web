@@ -2,9 +2,10 @@ name: Release
 
 # Pushing a tag vX.Y.Z builds the app, creates the GitHub release with the
 # single-file HTML and a zip of the multi-file build, and updates GitHub
-# Pages. Run it by hand with an existing tag to build and publish that
-# release again, e.g. after moving the repository (the Pages URL changes).
-# See docs/release.md.
+# Pages. A tag with a pre-release part (v20.0.0-beta.1) makes a release
+# marked as a pre-release. Run it by hand with an existing tag to build and
+# publish that release again, e.g. after moving the repository (the Pages
+# URL changes). See docs/release.md.
 
 on:
   push:
@@ -12,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'An existing release tag to build and publish again, e.g. v1.0.0'
+        description: 'An existing release tag to build and publish again, e.g. v20.0.0-beta.1'
         required: true
 
 permissions:
@@ -91,6 +92,9 @@ jobs:
           else
             set -- --generate-notes
           fi
+          case "$TAG" in
+            *-*) set -- "$@" --prerelease ;;
+          esac
           gh release create "$TAG" release/* --title "rcssmonitor-web $TAG" --verify-tag "$@"
 
   pages:

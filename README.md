@@ -12,7 +12,7 @@ A 3D view is planned. It is meant for servers on the same machine or the local n
 
 ## Getting it
 
-> The first release (v1.0) is being prepared. Until then, build it from the source (see [Development](#development)); the links below work from that release on.
+> **Beta.** The current release is the pre-release 20.0.0-beta.1. The major version follows rcssserver: version 20 is the asio-based rcssserver, the first with WebSocket connections. The stable 20.0.0 will come when the repository moves to the [rcsoccersim](https://github.com/rcsoccersim) organization, and the GitHub Pages address will change then.
 
 - **Single HTML file**: download `rcssmonitor-web-vX.Y.Z.html` from the [releases](https://github.com/hidehisaakiyama/rcssmonitor-web/releases) and open it from disk (`file://`). It replays logs and connects to servers anywhere on your LAN.
 - **GitHub Pages**: https://hidehisaakiyama.github.io/rcssmonitor-web/ for replaying logs and for servers on `localhost`. A page served over HTTPS cannot open plain `ws://` connections to other machines.
@@ -22,7 +22,7 @@ It runs in current Chrome and Firefox. Settings are kept in the browser (localSt
 
 ## Server requirements
 
-A rcssserver build with WebSocket support (the asio-based 19.x series). The WebSocket port is disabled by default; enable it when starting the server:
+A rcssserver build with WebSocket support: the asio-based rcssserver, to be released as version 20 (its development builds report 19.0.0). The WebSocket port is disabled by default; enable it when starting the server:
 
 ```sh
 rcssserver server::ws_port=6080

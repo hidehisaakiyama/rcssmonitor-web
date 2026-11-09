@@ -2,6 +2,8 @@
 
 タグ `vX.Y.Z` を push すると、GitHub Actions (`.github/workflows/release.yml`) が次を行う。
 
+版のメジャーは rcssserver にそろえる (asio 版の rcssserver は 20 として出る予定なので 20)。正式版の前のベータは `20.0.0-beta.1`、`20.0.0-beta.2` のように付ける。タグに `-` が入る版は、GitHub のリリースに Pre-release の印が付く。Pages はベータでも更新する。
+
 1. CI と同じ確認 (lint、型検査、単体テスト、2 種類のビルド、E2E テスト)。タグと `package.json` の版が違えば止まる。
 2. GitHub のリリースを作り、次の 2 つを添付する。
    - `rcssmonitor-web-vX.Y.Z.html`: 単一 HTML。ダウンロードして file:// で開く (LAN 内のサーバに接続できる)
@@ -25,7 +27,7 @@ GitHub のドキュメント (Transferring a repository) によると、移し�
 一方、GitHub Pages は転送されない。`https://hidehisaakiyama.github.io/rcssmonitor-web/` は見られなくなり、新しい場所は `https://rcsoccersim.github.io/rcssmonitor-web/` になる。そのため、移した後に次を行う。
 
 1. 移した先で、上の「初回だけ必要な設定」を確かめる (Pages と環境の設定が引き継がれるかは、ドキュメントに書かれていない)。Organization の Actions の制限 (使ってよいアクション、`GITHUB_TOKEN` の権限) も確かめる。
-2. Actions の画面で Release ワークフローを手で実行し (Run workflow)、`tag` に最新のタグ (例 `v1.0.0`) を入れる。そのタグの版をビルドし直して新しい Pages に公開し、リリースの添付ファイルを差し替える。
+2. Actions の画面で Release ワークフローを手で実行し (Run workflow)、`tag` に最新のタグ (例 `v20.0.0-beta.1`) を入れる。そのタグの版をビルドし直して新しい Pages に公開し、リリースの添付ファイルを差し替える。
 3. README と `docs/` の URL、About の「Source code」のリンク (`src/ui/dialogs/help-dialogs.ts` の `SOURCE_URL`) を新しい場所に書き換える。リリースノートの本文も、必要なら GitHub の画面で直す。
 4. 手元のクローンの接続先を変える (`git remote set-url origin git@github.com:rcsoccersim/rcssmonitor-web.git`)。
 
@@ -39,7 +41,7 @@ GitHub のドキュメント (Transferring a repository) によると、移し�
    npm version X.Y.Z --no-git-tag-version
    ```
 
-2. `docs/release-notes/vX.Y.Z.md` を書く (英語)。`docs/parity.md` と README の状態を確かめる。初回 (v1.0.0) は、README の「準備中」の注記を消す。
+2. `docs/release-notes/vX.Y.Z.md` を書く (英語)。`docs/parity.md` と README の状態を確かめる。正式版 (20.0.0) では、README のベータの注記を消す。
 3. コミットして main に push し、CI が通るのを確かめる。
 4. タグを付けて push する。
 
