@@ -29,9 +29,17 @@ const hook = <T>(page: Page, f: (h: Hook) => T) =>
 const kind = (page: Page) => hook(page, (h) => h.field.renderer.kind);
 const scene = (page: Page) => hook(page, (h) => h.field.renderer.inspect?.());
 
-/** Waits until the 3D view has drawn. */
+/**
+ * Waits until the 3D view has drawn. If it does not open, the error says
+ * why, as the app tells on the status bar (e.g. no WebGL).
+ */
 async function wait3d(page: Page): Promise<void> {
-  await expect.poll(() => kind(page)).toBe('3d');
+  try {
+    await expect.poll(() => kind(page)).toBe('3d');
+  } catch (e) {
+    const why = await page.locator('#status-message').textContent();
+    throw new Error(`the 3D view did not open: ${why ?? '(no message)'}`, { cause: e });
+  }
   await expect.poll(async () => (await scene(page))?.drawCalls ?? 0).toBeGreaterThan(0);
 }
 

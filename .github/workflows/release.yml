@@ -59,7 +59,8 @@ jobs:
       - run: npm run build
       - run: npm run build:single
       - run: npx playwright install --with-deps chromium firefox
-      - run: npm run test:e2e
+      # On a virtual display: without one, headless Firefox has no WebGL (the 3D view).
+      - run: xvfb-run -a npm run test:e2e
       - name: Package
         run: |
           mkdir release
