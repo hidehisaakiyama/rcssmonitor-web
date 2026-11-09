@@ -1,58 +1,35 @@
 import { existsSync } from 'node:fs';
-import { fileURLToPath, pathToFileURL } from 'node:url';
 import { expect, test } from '@playwright/test';
+import { fixture, loadLog, openApp, requireBuild, type Hook } from './helpers';
 
-// Opens the single-file build from file://, as users on a LAN do, and loads
-// game logs through the inline parsing worker.
-const singleHtml = fileURLToPath(
-  new URL('../../dist-single/rcssmonitor-web.html', import.meta.url),
-);
-const fixture = (name: string) => fileURLToPath(new URL(`../fixtures/${name}`, import.meta.url));
+// Loads game logs through the inline parsing worker of the single-file build.
+requireBuild();
 
-test.beforeAll(() => {
-  if (!existsSync(singleHtml)) {
-    throw new Error(
-      'dist-single/rcssmonitor-web.html not found; run `npm run build:single` first.',
-    );
-  }
-});
-
-const detail = (page: import('@playwright/test').Page, term: string) =>
-  page.locator('#log-details dt', { hasText: term }).locator('xpath=following-sibling::dd[1]');
-
-for (const [name, summary, scoreChanges, logos] of [
-  [
-    'json-sample.rcg.gz',
-    'JSON (gzip), 267 frames, cycles 1-6000, HELIOS2023 0-0 CYRUS',
-    'none',
-    'left 256x64, right none',
-  ],
-  [
-    'text-v5-sample.rcg.gz',
-    'text v5 (gzip), 312 frames, cycles 1-8000, HELIOS2022 1-0 CYRUS',
-    '6713 (1-0)',
-    'left 256x64, right 256x64',
-  ],
+for (const [name, summary] of [
+  ['json-sample.rcg.gz', 'JSON (gzip), 267 frames, cycles 1-6000, HELIOS2023 0-0 CYRUS'],
+  ['text-v5-sample.rcg.gz', 'text v5 (gzip), 312 frames, cycles 1-8000, HELIOS2022 1-0 CYRUS'],
 ] as const) {
   test(`loads ${name} from file://`, async ({ page }) => {
-    await page.goto(pathToFileURL(singleHtml).href);
+    await openApp(page);
     await page.setInputFiles('#rcg-file', fixture(name));
     await expect(page.locator('#load-result')).toHaveText(`${name}: ${summary}`);
-    await expect(detail(page, 'Score changes')).toHaveText(scoreChanges);
-    await expect(detail(page, 'Team logos')).toHaveText(logos);
-    await expect(detail(page, 'Warnings')).toHaveText('none');
+    await expect(page.locator('#frame-label')).toHaveText(/^1 \(1 \/ \d+\)$/);
   });
 }
 
-test('shows the penalty shoot-out of json-pk.rcg.gz', async ({ page }) => {
-  await page.goto(pathToFileURL(singleHtml).href);
-  await page.setInputFiles('#rcg-file', fixture('json-pk.rcg.gz'));
-  await expect(page.locator('#load-result')).toContainText('43 frames');
-  await expect(detail(page, 'Penalty shoot-out')).toHaveText('oxooo : ooxox');
+test('shows the penalty shoot-out of json-pk.rcg.gz on the score board', async ({ page }) => {
+  await openApp(page);
+  await loadLog(page, 'json-pk.rcg.gz');
+  const board = await page.evaluate(() => {
+    const hook = window.rcssmonitorWeb as Hook;
+    hook.showFrame(30);
+    return hook.scoreBoard();
+  });
+  expect(board).toContain('|oxoo :oox  |');
 });
 
 test('reports an unsupported file', async ({ page }) => {
-  await page.goto(pathToFileURL(singleHtml).href);
+  await openApp(page);
   await page.setInputFiles('#rcg-file', {
     name: 'old.rcg',
     mimeType: 'application/octet-stream',
@@ -71,10 +48,10 @@ for (const [name, frames] of [
   const path = fixture(`full/${name}`);
   test(`loads the full log ${name}`, async ({ page }, info) => {
     test.skip(!existsSync(path), 'full-length log not present');
-    await page.goto(pathToFileURL(singleHtml).href);
+    await openApp(page);
+    const started = Date.now();
     await page.setInputFiles('#rcg-file', path);
     await expect(page.locator('#load-result')).toContainText(frames, { timeout: 30_000 });
-    const loadTime = await detail(page, 'Load time').textContent();
-    console.log(`[${info.project.name}] ${name}: ${loadTime}`);
+    console.log(`[${info.project.name}] ${name}: ${Date.now() - started} ms`);
   });
 }

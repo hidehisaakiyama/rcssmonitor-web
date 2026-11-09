@@ -9,25 +9,83 @@
         --bg: #ffffff;
         --fg: #1d1d1f;
         --muted: #6e6e73;
+        --bar: #f2f2f4;
+        --border: #d2d2d7;
+        --field: #1fa01f;
       }
       @media (prefers-color-scheme: dark) {
         :root {
           --bg: #161618;
           --fg: #e6e6e6;
           --muted: #9a9aa0;
+          --bar: #222225;
+          --border: #3a3a3e;
         }
+      }
+      html,
+      body {
+        height: 100%;
       }
       body {
         margin: 0;
-        padding: 16px;
         background: var(--bg);
         color: var(--fg);
         font:
-          14px/1.5 system-ui,
+          13px/1.4 system-ui,
           sans-serif;
       }
-      .muted {
+      #app {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+      }
+      .toolbar,
+      .statusbar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 4px 8px;
+        background: var(--bar);
+        border-color: var(--border);
+        border-style: solid;
+        border-width: 0;
+        min-width: 0;
+      }
+      .toolbar {
+        border-bottom-width: 1px;
+      }
+      .statusbar {
+        border-top-width: 1px;
         color: var(--muted);
+      }
+      #frame-slider {
+        flex: 1;
+        min-width: 80px;
+      }
+      .frame-label,
+      .mouse-pos {
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+      .status-message {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .field-view {
+        position: relative;
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+        background: var(--field);
+        user-select: none;
+      }
+      .field-view canvas {
+        position: absolute;
+        left: 0;
+        top: 0;
       }
     </style>
   </head>

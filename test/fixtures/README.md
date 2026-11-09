@@ -54,6 +54,10 @@ asio 版 rcssserver 19.0.0 (`feature/asio-migration`) を `server::ws_port` だ�
 
 取得するときの注意: このサーバは環境変数 `HOME` を変えても、実際のホームの `~/.rcssserver/` に設定ファイル (`server.conf`、`player.conf`、`CSVSaver.conf`) がなければ作る。
 
+## fonts/ (テスト用フォント)
+
+DejaVu Sans と DejaVu Sans Bold の ASCII 部分集合 (WOFF)。E2E のスクリーンショット回帰テストで全フォントをこれに切り替え、環境に依存しない画像にする。作り方とライセンスは `fonts/LICENSE.txt`。
+
 ## full/ (全長ログ、コミットしない)
 
 `test/unit/full-logs.test.ts` と E2E テストは、ここに全長ログ (またはそのシンボリックリンク) があるときだけ実行される。`.gitignore` で除外している。

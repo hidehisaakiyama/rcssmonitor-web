@@ -53,5 +53,10 @@ export default tseslint.config(
     files: ['*.config.{js,ts}', 'tools/**/*.{js,mjs}', 'test/**/*.ts'],
     languageOptions: { globals: globals.node },
   },
+  {
+    // Playwright scripts: page.evaluate() callbacks run in the browser.
+    files: ['tools/parity/**/*.mjs', 'test/e2e/**/*.ts'],
+    languageOptions: { globals: { ...globals.node, ...globals.browser } },
+  },
   prettier,
 );
