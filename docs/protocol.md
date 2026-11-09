@@ -69,6 +69,8 @@ rcssmonitor-web が扱う、rcssserver のモニタ用 WebSocket / JSON プロ�
 - 値は整数、`true` / `false`、実数、文字列。`Record<string, number | boolean | string>` として扱い、既定値表と合わせて使う。
 - `tcp_port`、`ws_port`、`ws_allowed_origins`、`max_monitors` なども含まれる。
 - 審判操作の可否は `coach` と `coach_w_referee` で判断する (§6)。
+- 項目が欠けたときの既定値は `src/core/param-defaults.ts` に置く。asio 版 rcssserver 19.0.0 を既定の設定で起動し、JSON モニタとして受け取った値を使った (起動時に指定した `ws_port` と、起動ごとに変わる `random_seed` は設定上の既定値 0 と -1 に直した)。
+  - rcssmonitor の表 (`monitor/rcss/rcg/types.cpp:547-760`) は古く、`player_speed_max` (1.2)、`stamina_max` (4000) など約 40 項目が今のサーバと違う。`effort_inc` は対応表にない。
 
 ### 3.2 player_type
 
@@ -345,6 +347,9 @@ gzip かどうかは、その前に先頭の `1f 8b` で判定する。
 - `px py` は省略されうる。有無は、次のトークンが `(v` かどうかで判断する。
 - コマンド回数は 11 個または 12 個。
 - `stime` がない。中断中は同じ `T` の show 行が繰り返される (サンプルでは 30〜51 回)。繰り返しの回数を `stime` とみなす。
+  - 同じ `T` の n 回目 (0 から数える) の show に `stime = n` を割り当てる。playmode / team / msg 行には、同じ `T` の次の show と同じ値を割り当てる。
+  - JSON rcg では、中断が始まる cycle の `stime` 0 の show はまだ中断前のプレイモードで、playmode レコードは `stime` 1 で書かれる (`1-json.rcg.gz` の 1746: play_on の show の後に `foul_charge_l` の show が 30 件)。
+  - テキスト rcg の例 (`202207160432-…rcg.gz` の 789 の `offside_r` と 6713 の `goal_l`) では、playmode 行がその cycle の最初の show 行より前にあり、同じ cycle の show はすべて新しいプレイモードになる。JSON の例との違いが形式によるものか、判定された step (通常の step か中断中の step か) によるものかは確かめていない。いずれにしても、テキストからは `stime` 0 の show が中断前のものかどうかを区別できない。
 - ライブのテキスト形式の show には、時刻の直後に `(pm N)` と `(tm L R SL SR …)` が入る。ログの show にはない。
 - チームグラフィックは msg 行に入っていて、引用符が入れ子になっている。閉じ括弧の対応も崩れている。
 

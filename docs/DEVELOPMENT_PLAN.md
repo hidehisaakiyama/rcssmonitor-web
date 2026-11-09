@@ -119,7 +119,7 @@ rcssmonitor-web/
 interface Frame {
   time: number; stime: number;
   mode: PlayMode;
-  teams: [TeamInfo, TeamInfo];          // name, score, penScore?, penMiss?
+  teams: [TeamInfo, TeamInfo];          // name, score, penScore, penMiss (PK の値。届かなければ 0)
   ball: { x: number; y: number; vx: number; vy: number };
   players: PlayerState[];               // 22 要素。左 unum-1、右 11+unum-1 の位置に置く
 }
@@ -334,3 +334,29 @@ asio 版サーバで見つかった問題 (サーバ側で対応を検討する)
 4. `docs/protocol.md` と `docs/parity.md` の初版を書き、フィクスチャを作る。
 5. 制約を確かめる検証用ページを作り、ローカルで確認できる範囲 (file://、localhost、Worker、DecompressionStream) を確かめる。LAN の別マシンや Safari での確認は、手順を書いてユーザに依頼する。
 6. 最初のコミットと GitHub へのリポジトリ作成は、内容を確認してもらってから行う。
+
+## 9. フェーズの結果
+
+### Phase 1 (2026-11-09)
+
+**完了条件の確認**
+- 単体テスト 103 件 (両フィクスチャのフレーム数、特定フレームの値、PlayMode の並び、得点変化の位置、ロゴの寸法、PK 履歴を含む) と E2E テストが通る。
+- 全長ログ 2 本を読み込める。show の件数は JSON 6,209、テキスト 8,406 で、ファイルの件数と一致する。
+
+| 計測 | JSON (6,209 フレーム) | テキスト v5 (8,406 フレーム) |
+|---|---|---|
+| Node (解析のみ) | 334 ms | 350 ms |
+| Chromium (単一 HTML、Worker 経由) | 312 ms | 499 ms |
+| Firefox (単一 HTML、Worker 経由) | 514 ms | 648 ms |
+| 読み込み後のヒープ増加 (Node) | 72 MB | 100 MB |
+
+メモリが 300 MB を大きく下回るので、フレームは素のオブジェクトのままにする (§4.2)。
+
+**計画からの変更と、実装で決めたこと**
+- パーサは `RcgRecord` (素のオブジェクト) を出し、`GameStore.apply()` がそれを適用する。Worker はレコードを show 200 件ごとにまとめて送る。ライブ受信 (Phase 4) も同じレコードを使う。
+- `GameStore.scoreChanges` は、得点が前のフレームと変わった最初のフレームを指す。rcssmonitor はその 1 つ前のフレームを記録している。PK 履歴は rcssmonitor と同じく、プレイモードの変化で記録する。
+- パラメータの既定値表は、rcssmonitor の表ではなく、asio 版 rcssserver 19.0.0 が実際に送る値から作った (rcssmonitor の表は約 40 項目が古い)。
+- テキスト rcg の `stime` は、同じ cycle の show 行の出現順 (0 から) で推定する。
+- 不正な行は飛ばして警告にし、読み込みを続ける。
+- PK 戦のフィクスチャを JSON とテキストの両方で合成した。ライブの JSON メッセージのフィクスチャも、実際のサーバから取得して加えた。
+- 読み込みの画面は仮のもの (要約の表示のみ)。フィールドの描画は Phase 2、ファイルを開く操作の仕上げは Phase 3 で行う。

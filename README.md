@@ -2,7 +2,7 @@
 
 A browser-based monitor for the [RoboCup Soccer Simulator](https://github.com/rcsoccersim) 2D server (rcssserver).
 
-**Status: early development (Phase 0).** Nothing is usable yet.
+**Status: early development (Phase 1).** Game logs can be loaded and summarized, but there is no field view yet.
 
 ## Goals
 

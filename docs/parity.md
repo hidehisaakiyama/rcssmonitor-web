@@ -79,13 +79,13 @@ rcssmonitor (Qt 版) の機能と、rcssmonitor-web での扱いをまとめた�
 | 機能 | rcssmonitor | Phase | 状態 | 備考 |
 |---|---|---|---|---|
 | ログを開く (Ctrl+O) | main_window.cpp:1743-1785 | 3 | 未着手 | ドラッグ＆ドロップも加える |
-| JSON rcg、テキスト rcg v4〜v6、gzip | rcss/rcg/parser.cpp:56-131 | 1 | 未着手 | |
+| JSON rcg、テキスト rcg v4〜v6、gzip | rcss/rcg/parser.cpp:56-131 | 1 | 済 | Worker で解析する。不正な行は飛ばして警告にする。テキスト rcg の `stime` は推定する |
 | バイナリ rcg v1〜v3 | rcss/rcg/parser_v1〜v3 | 将来 | 対象外 | |
-| 読み込みの進捗表示 | rcg_handler.cpp:59-123 | 1 | 未着手 | |
+| 読み込みの進捗表示 | rcg_handler.cpp:59-123 | 1 | 作業中 | Worker から展開と解析の進捗を送る部分は済。表示は Phase 3 の画面で仕上げる |
 | 再生と停止 (Space) | main_window.cpp:327-473 | 3 | 未着手 | |
 | 1 フレーム送りと戻し (←、→、ホイール) | main_window.cpp:1315 | 3 | 未着手 | |
 | 速度の変更 (Ctrl+↑ / ↓、5〜5000 ms) | log_player.cpp:229-353 | 3 | 未着手 | |
-| 前後の得点へ移動 (G、Ctrl+G) | log_player.cpp:245-291 | 3 | 未着手 | 50 フレーム手前に移動する |
+| 前後の得点へ移動 (G、Ctrl+G) | log_player.cpp:245-291 | 3 | 未着手 | 50 フレーム手前に移動する。`GameStore.scoreChanges` は得点が変わった最初のフレームを指す (rcssmonitor はその 1 つ前) |
 | 先頭と末尾 (Home、End) | main_window.cpp | 3 | 未着手 | |
 | フレーム位置のスライダー | log_player_slider.cpp:76-145 | 3 | 未着手 | |
 | ループ再生 | disp_holder.cpp:490-551 | 3 | 未着手 | |
@@ -113,12 +113,14 @@ rcssmonitor (Qt 版) の機能と、rcssmonitor-web での扱いをまとめた�
 
 | 不具合 | 場所 | 状態 |
 |---|---|---|
-| 65,535 フレームを超えるとライブ表示が止まる | disp_holder.cpp:65, 249 | 未着手 |
-| JSON の `vq` が bool として扱われる | rcss/rcg/parser_simdjson.cpp:478 | 未着手 |
-| JSON の未知のキーで解析全体が中断する | rcss/rcg/parser_simdjson.cpp:85-164 | 未着手 |
-| JSON の選手を配列の順に格納している | rcss/rcg/parser_simdjson.cpp:447-525 | 未着手 |
-| `foul_push_r` が PM_Null になる | rcss/rcg/util.cpp:854-855 | 未着手 |
-| テキスト rcg のチームグラフィックで 16 文字以上の文字列が壊れる | rcss/rcg/parser_v4.cpp:625-709 | 未着手 |
+| 65,535 フレームを超えるとライブ表示が止まる | disp_holder.cpp:65, 249 | 済 |
+| JSON の `vq` が bool として扱われる | rcss/rcg/parser_simdjson.cpp:478 | 済 |
+| JSON の未知のキーで解析全体が中断する | rcss/rcg/parser_simdjson.cpp:85-164 | 済 |
+| JSON の選手を配列の順に格納している | rcss/rcg/parser_simdjson.cpp:447-525 | 済 |
+| `foul_push_r` が PM_Null になる | rcss/rcg/util.cpp:854-855 | 済 |
+| テキスト rcg のチームグラフィックで 16 文字以上の文字列が壊れる | rcss/rcg/parser_v4.cpp:625-709 | 済 |
+| パラメータの既定値が古い (`player_speed_max` 1.2、`stamina_max` 4000 など約 40 項目)。`effort_inc` が対応表にない | rcss/rcg/types.cpp:547-760 | 済 |
+| テキスト rcg に `(名前` で始まらない行が 1 行でもあると、ログ全体の読み込みが止まる | rcss/rcg/parser_v4.cpp:95-102, 123-128 | 済 |
 | Change Playmode の back_pass で何も送られない | main_window.cpp:2394-2429 | 未着手 |
 | 設定ダイアログの "Fix" が Auto-right になる | config_dialog.cpp:2441 | 未着手 |
 | Illegal Defense の色の初期値が Pointto の色 | config_dialog.cpp:1258-1260 | 未着手 |

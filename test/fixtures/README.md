@@ -27,7 +27,40 @@ python3 -I tools/fixtures/make_fixtures.py \
 | 行数 | ULG5 1、server_param 1、player_param 1、player_type 18、msg 513 (うちチームグラフィック 512)、playmode 10、team 3、show 312 |
 | 大きさ | 展開後 1,117,172 バイト、gzip 後 242,539 バイト |
 
+## json-pk.rcg.gz、text-v5-pk.rcg.gz (合成した PK 戦)
+
+元のログ 2 本とも PK 戦がないので、上の 2 つのフィクスチャから合成した。`tools/fixtures/make_pk_fixtures.py` で生成する (生成は決定的)。
+
+```sh
+python3 -I tools/fixtures/make_pk_fixtures.py test/fixtures
+```
+
+| 項目 | 内容 |
+|---|---|
+| 素材 | json-sample / text-v5-sample のヘッダ (version、パラメータ、選手タイプ。チームグラフィックは除く) と、最後の show |
+| 流れ | 5998〜5999 が play_on、6000 から PK 戦 (左から交互に 5 本ずつ)、6040 が time_over |
+| 結果 | 左 o x o o o (4)、右 o o x o x (3) |
+| フレーム | 1 本につき penalty_setup / ready / taken / score または miss を 1 フレームずつ。show は全部で 43 件 |
+| team レコード | penalty_score / penalty_miss の直後に、更新した PK の得点と失敗数を書く。JSON では PK を蹴ったチームにだけ `pen_score` / `pen_miss` を付ける |
+
+選手とボールの位置は素材の show のままで、PK らしい配置にはなっていない。
+
+## live-before-kickoff.jsonl (ライブの JSON メッセージ)
+
+asio 版 rcssserver 19.0.0 (`feature/asio-migration`) を `server::ws_port` だけ指定して起動し、`(dispinit version -1)` で接続して受け取った最初の 22 メッセージ。1 行が 1 メッセージ。
+
+- server_param、player_param、player_type 18 件、show 2 件 (before_kick_off、チーム未接続)。
+- `ws_port` (16081) と `random_seed` はこの起動のときの値。
+
+取得するときの注意: このサーバは環境変数 `HOME` を変えても、実際のホームの `~/.rcssserver/` に設定ファイル (`server.conf`、`player.conf`、`CSVSaver.conf`) がなければ作る。
+
+## full/ (全長ログ、コミットしない)
+
+`test/unit/full-logs.test.ts` と E2E テストは、ここに全長ログ (またはそのシンボリックリンク) があるときだけ実行される。`.gitignore` で除外している。
+
+- `full/1-json.rcg.gz` (show 6,209 件)
+- `full/202207160432-HELIOS2022_1-vs-CYRUS_0.rcg.gz` (show 8,406 件)
+
 ## 含まれていないもの
 
-- PK 戦: 元のログ 2 本とも PK 戦がない。PK の表示を確かめるフィクスチャは Phase 1 で合成する。
-- テキスト rcg v4 / v6: 必要になったら同じスクリプトで作る。
+- テキスト rcg v4 / v6: 必要になったら同じスクリプトで作る。v4 / v6 に固有の書式 (capacity なし、`(fp …)`、12 個目のコマンド回数) は単体テストの中の行で確かめている。
