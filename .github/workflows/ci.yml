@@ -1,8 +1,10 @@
 name: CI
 
+# Branches (docs/release.md): main has the releases, develop gathers the
+# work, feature/* and hotfix/* branch off them.
 on:
   push:
-    branches: [main]
+    branches: [main, develop, 'feature/**', 'hotfix/**']
   pull_request:
 
 permissions:

@@ -4,13 +4,26 @@
 
 版のメジャーは rcssserver にそろえる (asio 版の rcssserver は 20 として出る予定なので 20)。正式版の前のベータは `20.0.0-beta.1`、`20.0.0-beta.2` のように付ける。タグに `-` が入る版は、GitHub のリリースに Pre-release の印が付く。Pages はベータでも更新する。
 
-1. CI と同じ確認 (lint、型検査、単体テスト、2 種類のビルド、E2E テスト)。タグと `package.json` の版が違えば止まる。
+1. CI と同じ確認 (lint、型検査、単体テスト、2 種類のビルド、E2E テスト)。タグと `package.json` の版が違うとき、タグが main にないときは止まる。
 2. GitHub のリリースを作り、次の 2 つを添付する。
    - `rcssmonitor-web-vX.Y.Z.html`: 単一 HTML。ダウンロードして file:// で開く (LAN 内のサーバに接続できる)
    - `rcssmonitor-web-vX.Y.Z-dist.zip`: 分割ビルド (`dist/`)。自分の Web サーバに置く場合に使う
 3. 分割ビルドを GitHub Pages に公開する。
 
 リリースノートは `docs/release-notes/vX.Y.Z.md` があればそれを使い、なければ GitHub が自動で作る。
+
+## ブランチ
+
+| ブランチ | 内容 |
+|---|---|
+| `main` | リリースした状態。タグは main に付ける。リポジトリの既定のブランチ |
+| `develop` | 開発の取り込み先。次のリリースに入れるものを集める |
+| `feature/*` | 機能ごとの作業 (例 `feature/3d-view`)。develop から切り、develop に取り込む |
+| `hotfix/*` | リリース済みの版の急ぎの修正 (例 ベータの `beta.2`)。main から切り、main と develop の両方に取り込む |
+
+- 取り込みは通常の merge (マージコミットを作る) で行い、作業の段階ごとのコミットを残す。
+- CI は main、develop、`feature/**`、`hotfix/**` への push と、PR で動く。
+- GitHub で PR を作るときは、宛先が既定で main になる。feature ブランチの PR は develop に向ける。
 
 ## 初回だけ必要な設定 (GitHub の Web 画面)
 
@@ -35,15 +48,22 @@ GitHub のドキュメント (Transferring a repository) によると、移し�
 
 ## 手順
 
-1. `package.json` の版を上げる。
+1. develop で `package.json` の版を上げる。急ぎの修正なら、main から切った `hotfix/*` で行う。
 
    ```sh
    npm version X.Y.Z --no-git-tag-version
    ```
 
 2. `docs/release-notes/vX.Y.Z.md` を書く (英語)。`docs/parity.md` と README の状態を確かめる。正式版 (20.0.0) では、README のベータの注記を消す。
-3. コミットして main に push し、CI が通るのを確かめる。
-4. タグを付けて push する。
+3. コミットして push し、CI が通るのを確かめる。そのブランチ (develop または `hotfix/*`) を main に取り込んで push し、main の CI も通るのを確かめる。`hotfix/*` は develop にも取り込む。
+
+   ```sh
+   git checkout main
+   git merge --no-ff develop
+   git push origin main
+   ```
+
+4. main でタグを付けて push する。
 
    ```sh
    git tag -a vX.Y.Z -m "rcssmonitor-web X.Y.Z"

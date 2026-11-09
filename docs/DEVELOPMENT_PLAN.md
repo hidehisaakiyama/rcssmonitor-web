@@ -29,6 +29,7 @@ asio 版 rcssserver が TCP / WebSocket での接続に対応し、rcssmonitor �
 | 配布 | (a) file:// で開ける単一 HTML をリリースに添付 (LAN 接続用)<br>(b) GitHub Pages (localhost 接続とログ再生用) |
 | テスト | Vitest (単体)、Playwright (E2E、Chromium と Firefox) |
 | 版番号 | メジャーを rcssserver にそろえ、対応するサーバ (プロトコル) を示す。asio 版の rcssserver は 20 として出る予定なので 20。正式版の前のベータは `20.0.0-beta.N` (2026-11-09 に決定) |
+| ブランチ | `main` はリリースした状態でタグを付ける。`develop` に開発を集め、機能は `feature/*`、リリース済みの版の急ぎの修正は `hotfix/*` で行う (`docs/release.md`。2026-11-09 に決定) |
 
 ## 3. 設計に効くサーバ側の仕様
 
@@ -518,3 +519,15 @@ asio 版サーバで見つかった問題 (サーバ側で対応を検討する)
 - About には版 (package.json) とビルドのコミットを出す。版は 20.0.0-beta.1 にした (§2)。
 - 直した rcssmonitor の不具合: "Fix" が Auto right になる、Illegal Defense の色の初期値、選手タイプ一覧で数値が 2 つある列が並べ替わらない。
 - メニューバーの高さを整数の画素にした。小数だとその下のフィールドが画素の境目からずれ、スクリーンショットのテストの大きさが 1 画素変わった。
+
+### プレリリース 20.0.0-beta.1 (2026-11-09)
+
+**完了条件の確認**
+- main のコミット `0cd6410` にタグ `v20.0.0-beta.1` を付けて push した。Release ワークフローの 3 つのジョブ (確認とビルド、リリース、Pages) が成功した (約 3 分)。
+- リリースは Pre-release の印付きで公開され、単一 HTML (`rcssmonitor-web-v20.0.0-beta.1.html`) と dist の zip が添付された。本文は `docs/release-notes/v20.0.0-beta.1.md` から入った。
+- Pages (`https://hidehisaakiyama.github.io/rcssmonitor-web/`) が公開された。
+- 添付の単一 HTML をダウンロードして file:// で開いた場合と、Pages の場合の両方で、Chromium と Firefox でログを読み込めた。About の版は `20.0.0-beta.1 (0cd6410)`。
+
+**その後に決めたこと**
+- Phase 6 (3D 表示) を正式リリース 20.0.0 より先に進める。3D を 20.0.0 に含めるかは、まだ決めていない。
+- ブランチの方針 (§2) を決め、main から `develop` を切った。Phase 6 は develop から切った `feature/3d-view` で進める。
