@@ -6,7 +6,7 @@ if (!root) {
   throw new Error('#app not found');
 }
 const app = new App(root);
-app.applyUrlParams(new URLSearchParams(location.search));
+app.start(new URLSearchParams(location.search));
 
 // Hooks for the end-to-end tests and for debugging from the console.
 declare global {

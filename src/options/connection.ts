@@ -4,6 +4,8 @@
 // Saved settings override the defaults, and URL parameters override both:
 //   ?connect=1&host=192.168.0.10&port=6080&path=/monitor
 //   &auto_reconnect_mode=on&auto_reconnect_wait=10
+// rcssmonitor's option names work too (server_host, server_port,
+// server_ws_path), also with '-' (server-host).
 import { readSetting, writeSetting } from './storage';
 
 export interface ConnectionSettings {
@@ -87,14 +89,25 @@ export function connectionFromUrl(
   base: ConnectionSettings,
   params: URLSearchParams,
 ): { settings: ConnectionSettings; connect: boolean } {
+  // The first of the names given, with '-' read as '_'.
+  const named = new Map([...params].map(([k, v]) => [k.replace(/-/g, '_'), v]));
+  const get = (...names: string[]) => {
+    for (const n of names) {
+      const v = named.get(n);
+      if (v !== undefined) {
+        return v;
+      }
+    }
+    return null;
+  };
   return {
     settings: mergeConnection(base, {
-      host: params.get('host') ?? undefined,
-      port: parseInteger(params.get('port')),
-      path: params.get('path') ?? undefined,
-      autoReconnect: parseBool(params.get('auto_reconnect_mode')),
-      reconnectWait: parseInteger(params.get('auto_reconnect_wait')),
+      host: get('host', 'server_host') ?? undefined,
+      port: parseInteger(get('port', 'server_port')),
+      path: get('path', 'server_ws_path') ?? undefined,
+      autoReconnect: parseBool(get('auto_reconnect_mode')),
+      reconnectWait: parseInteger(get('auto_reconnect_wait')),
     }),
-    connect: parseBool(params.get('connect')) ?? false,
+    connect: parseBool(get('connect')) ?? false,
   };
 }

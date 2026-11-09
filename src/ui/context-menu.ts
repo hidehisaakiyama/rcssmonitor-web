@@ -1,6 +1,7 @@
-// A pop-up menu at the mouse, like QMenu::exec, with one level of submenus.
-// Arrow keys move between the items and into / out of a submenu; Escape,
-// a click elsewhere or leaving the window closes it.
+// A pop-up menu at the mouse, like QMenu::exec, with one level of submenus;
+// also the drop-down menus of the menu bar. Arrow keys move between the
+// items and into / out of a submenu; Escape, a click elsewhere or leaving
+// the window closes it.
 
 export type MenuItem =
   | {
@@ -10,6 +11,10 @@ export type MenuItem =
       readonly action: () => void;
       readonly disabled?: boolean;
       readonly title?: string;
+      /** A check box item when set. */
+      readonly checked?: boolean;
+      /** Shown on the right, e.g. "Ctrl+O". */
+      readonly shortcut?: string;
     }
   | { readonly kind: 'separator' }
   | {
@@ -21,11 +26,28 @@ export type MenuItem =
       readonly title?: string;
     };
 
+/** A menu item that runs an action. */
+export type ActionItem = Extract<MenuItem, { readonly action: () => void }>;
+
+export interface MenuOptions {
+  /** Default "context-menu". */
+  readonly id?: string;
+  /** Pointer presses in it do not close the menu (the menu bar handles them). */
+  readonly owner?: HTMLElement;
+  /** Called with -1 / +1 for Left / Right in the top level (to move along the menu bar). */
+  readonly onArrow?: (direction: -1 | 1) => void;
+  readonly onClose?: () => void;
+  /** Focus the first item, as when opened from the keyboard. */
+  readonly focusFirst?: boolean;
+}
+
 export class ContextMenu {
   private root: HTMLElement | null = null;
+  private options: MenuOptions = {};
   private restoreFocus: HTMLElement | null = null;
   private readonly onPointerDown = (e: PointerEvent) => {
-    if (this.root && !this.root.contains(e.target as Node)) {
+    const target = e.target as Node;
+    if (this.root && !this.root.contains(target) && !this.options.owner?.contains(target)) {
       this.close();
     }
   };
@@ -36,12 +58,19 @@ export class ContextMenu {
   }
 
   /** Opens the menu with its top left at the client coordinates. */
-  show(items: readonly MenuItem[], clientX: number, clientY: number): void {
-    this.close();
+  show(
+    items: readonly MenuItem[],
+    clientX: number,
+    clientY: number,
+    options: MenuOptions = {},
+  ): void {
+    const restore = this.root ? this.restoreFocus : null;
+    this.close(false);
+    this.options = options;
     this.restoreFocus =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      restore ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
     const root = this.buildMenu(items);
-    root.id = 'context-menu';
+    root.id = options.id ?? 'context-menu';
     root.addEventListener('keydown', (e) => this.key(e));
     root.addEventListener('contextmenu', (e) => e.preventDefault());
     document.body.append(root);
@@ -58,10 +87,12 @@ export class ContextMenu {
     window.addEventListener('blur', this.onClose);
     window.addEventListener('resize', this.onClose);
     window.addEventListener('wheel', this.onClose, { passive: true });
-    root.focus();
+    // With every item disabled, the menu itself takes the keys.
+    (options.focusFirst ? (this.items(root)[0] ?? root) : root).focus();
   }
 
-  close(): void {
+  /** Closes the menu; `restoreFocus` false keeps the focus (another menu opens). */
+  close(restoreFocus = true): void {
     if (!this.root) {
       return;
     }
@@ -71,8 +102,13 @@ export class ContextMenu {
     window.removeEventListener('blur', this.onClose);
     window.removeEventListener('resize', this.onClose);
     window.removeEventListener('wheel', this.onClose);
-    this.restoreFocus?.focus({ preventScroll: true });
-    this.restoreFocus = null;
+    const onClose = this.options.onClose;
+    this.options = {};
+    if (restoreFocus) {
+      this.restoreFocus?.focus({ preventScroll: true });
+      this.restoreFocus = null;
+    }
+    onClose?.();
   }
 
   private buildMenu(items: readonly MenuItem[]): HTMLElement {
@@ -89,7 +125,11 @@ export class ContextMenu {
       } else if (item.kind === 'submenu') {
         menu.append(this.buildSubmenu(item));
       } else {
-        const b = this.button(item.label, item.id, item.disabled, item.title);
+        const b = this.button(item.label, item.id, item.disabled, item.title, item.shortcut);
+        if (item.checked !== undefined) {
+          b.setAttribute('role', 'menuitemcheckbox');
+          b.setAttribute('aria-checked', String(item.checked));
+        }
         b.addEventListener('click', () => {
           this.close();
           item.action();
@@ -117,13 +157,29 @@ export class ContextMenu {
     return wrapper;
   }
 
-  private button(label: string, id?: string, disabled?: boolean, title?: string) {
+  private button(
+    label: string,
+    id?: string,
+    disabled?: boolean,
+    title?: string,
+    shortcut?: string,
+  ) {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'menu-item';
     b.setAttribute('role', 'menuitem');
     b.tabIndex = -1;
-    b.textContent = label;
+    const text = document.createElement('span');
+    text.className = 'menu-label';
+    text.textContent = label;
+    b.append(text);
+    if (shortcut) {
+      const key = document.createElement('span');
+      key.className = 'menu-shortcut';
+      key.textContent = shortcut;
+      b.append(key);
+      b.setAttribute('aria-keyshortcuts', shortcut.replace(/⌃/g, 'Control+'));
+    }
     if (id) {
       b.id = id;
     }
@@ -205,19 +261,23 @@ export class ContextMenu {
         items[(i - 1 + items.length) % items.length]?.focus();
         break;
       case 'ArrowRight':
+        e.preventDefault();
         if (active?.parentElement?.classList.contains('menu-submenu')) {
-          e.preventDefault();
           this.openSubmenu(active.parentElement, true);
+        } else {
+          this.options.onArrow?.(1);
         }
         break;
       case 'ArrowLeft': {
+        e.preventDefault();
         const wrapper = menu.parentElement;
         if (wrapper?.classList.contains('menu-submenu')) {
-          e.preventDefault();
           menu.hidden = true;
           const b = wrapper.firstElementChild as HTMLElement;
           b.setAttribute('aria-expanded', 'false');
           b.focus();
+        } else {
+          this.options.onArrow?.(-1);
         }
         break;
       }

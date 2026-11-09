@@ -39,6 +39,22 @@ describe('connection settings', () => {
     });
   });
 
+  it('takes the names of rcssmonitor options too', () => {
+    const params = new URLSearchParams(
+      'connect&server-host=10.0.0.2&server_port=6000&server-ws-path=/player&auto-reconnect-mode=on',
+    );
+    expect(connectionFromUrl(DEFAULT_CONNECTION, params)).toEqual({
+      settings: {
+        ...DEFAULT_CONNECTION,
+        host: '10.0.0.2',
+        port: 6000,
+        path: '/player',
+        autoReconnect: true,
+      },
+      connect: true,
+    });
+  });
+
   it('ignores invalid values', () => {
     const params = new URLSearchParams('connect=maybe&port=70000&auto_reconnect_wait=0&host=');
     expect(connectionFromUrl(DEFAULT_CONNECTION, params)).toEqual({

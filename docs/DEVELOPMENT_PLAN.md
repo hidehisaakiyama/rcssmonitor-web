@@ -254,7 +254,7 @@ interface FieldRenderer {
 - 擬似サーバに対する E2E テストが通る (接続、受信、ライブ追従、切断、コマンド送信)。
 - 実際の asio 版 rcssserver に対する手動試験が通る (§7)。
 
-### Phase 5: 設定・ダイアログ・初回リリース (v1.0)
+### Phase 5: 設定・ダイアログ・リリースの準備
 
 **作業**
 - 設定ダイアログ。rcssmonitor と同じ 4 タブ (Show、Canvas、Color、Font)。色 35 項目、フォント 3 種類。
@@ -264,7 +264,23 @@ interface FieldRenderer {
 - Qt 固有の機能 (Window Style、About Qt、終了、auto quit) は対象外にする。
 - リリース手順を整える (単一 HTML、zip、Pages)。
 
-**完了条件**: `docs/parity.md` の対象項目がすべて「済」になる。v1.0 のタグを付け、成果物がリリースに添付される。
+**完了条件**: `docs/parity.md` の対象項目がすべて「済」か「対象外」になる。リリースのワークフローと手順がそろう。
+
+### v1.0 のリリース (Phase 5 と Phase 6 の間)
+
+タグの push で公開され、取り消しが利かないので、Phase 5 から分けた。
+
+**作業**
+- rcsoccersim の Organization への移転とリリースの、どちらを先にするかを決める。Pages の URL は移転で変わり、古い URL からは転送されないので、広く告知するなら移転を先にする (`docs/release.md`)。
+- GitHub の設定をする。Pages の Source を「GitHub Actions」にし、`github-pages` 環境にタグの規則 `v*` を加える。移転した場合は、README と About のリンクを新しい場所に書き換える。
+- 公開の前に、手で確かめる。
+  - ふだん使うブラウザ (Chrome、Firefox。可能なら Safari も) で、ブラウザの機能と重なるキーを横取りできるか。対象は Ctrl+1〜0、Ctrl+-、Ctrl+L / K / H / M / S / P / F、F11 (`docs/parity.md` §8)。
+  - LAN 内の別のマシンから、単一 HTML で接続できるか。
+- タグ `v1.0.0` を付けて push し、リリースの添付ファイルと Pages を確かめる (`docs/release.md`)。
+- 公開の後に、Pages 版から localhost のサーバに接続できるかを確かめる (Chrome のローカルネットワークの許可を含む)。
+- README の「準備中」の注記を消す。
+
+**完了条件**: v1.0.0 のタグが付き、単一 HTML と dist の zip がリリースに添付され、Pages が公開される。上の手動の確認の結果を §9 に記録する。
 
 ### Phase 6: 3D 表示
 
@@ -434,7 +450,7 @@ asio 版サーバで見つかった問題 (サーバ側で対応を検討する)
 | `ws_allowed_origins='http://example.invalid,null'` | 接続できた |
 | rcssmonitor (Qt 版、ws) との比較 | 同じサーバにつなぎ、キックオフ前の画面を比べた。選手の位置、ロゴ、スコアボードは一致した。違いは、2 枚を撮る間に変わった体の向きと、Phase 2 と同じフォントの字形だけ |
 
-- まだ確かめていないこと: LAN 内の別のマシンからの接続、Pages 版から localhost への接続 (Pages の公開は Phase 5)。
+- まだ確かめていないこと: LAN 内の別のマシンからの接続、Pages 版から localhost への接続。どちらも v1.0 のリリースの段階で確かめる (Pages はそのとき公開する)。
 
 **計画からの変更と、実装で決めたこと**
 - 接続部 `LiveClient` (`src/io/live/client.ts`) は DOM に依存しない。そのため、単体テストで Node の WebSocket から擬似サーバにつないで試せる。
@@ -461,3 +477,34 @@ asio 版サーバで見つかった問題 (サーバ側で対応を検討する)
 - `tools/parity/capture.sh` と `compare.mjs` を、ログの代わりにライブのサーバにもつなげるようにした (`ws://HOST:PORT`、`--live HOST:PORT`)。§7 の rcssmonitor との並べての比較に使う。
 - 数値の書式 (printf の `%g` に当たる `formatG`) を `src/core/number-format.ts` に置き、`(move (ball) …)` と選手のラベルで共有した。
 - Phase 5 で確かめること: Ctrl+C、Ctrl+L、Ctrl+K がふだん使うブラウザ (ヘッドレスでないもの) で横取りできるか。
+
+### Phase 5 (2026-11-09)
+
+**完了条件の確認**
+- `docs/parity.md` の項目はすべて「済」か「対象外」になった。「将来」とした 2 項目 (選手のドラッグ移動、軌跡) は v1.0 の対象外とした。
+- キー割り当ての互換表を `docs/parity.md` の §8 に書いた。rcssmonitor のキーには、ブラウザが予約していて横取りできないもの (Ctrl+N / T / W、Ctrl+Tab など) がないので、代わりのキーは要らなかった。
+- リリースのワークフロー (`.github/workflows/release.yml`) と手順 (`docs/release.md`) を用意した。
+  - 版の確認と添付ファイルの作成は手元で試した。ワークフロー自体は GitHub 上でしか動かないので、最初のタグのときに確かめる。
+  - 既存のタグを指定して手で実行し直せる。リポジトリを移した後に、新しい URL の Pages へ公開し直すため。
+- 分割ビルドをサブパスに置いて HTTP で配信し (Pages と同じ形)、Chromium と Firefox で動くことを確かめた。
+- 単体テストで次を確かめた。
+  - 設定の保存と読み込み、値の検証、URL パラメータ (保存しないこと)、保存できない環境
+  - ショートカット一覧と実際のキー処理が一致すること (どちらの向きにも)
+  - 選手タイプ一覧の値と並べ替え
+- E2E テスト (Chromium と Firefox) で、メニューバー (マウスと矢印キー)、バーの表示切替と保存、設定ダイアログの 4 タブ (変更の反映、キー操作への追従、再読み込み後の保存)、URL パラメータ、選手タイプ一覧の並べ替え、ショートカット一覧と About、全画面を確かめた。
+
+**計画からの変更と、実装で決めたこと**
+- v1.0 のタグ付け、リリースへの添付、Pages の公開を Phase 5 から分け、次の段階「v1.0 のリリース」(§5) にした。公開は取り消しが利かず、Organization への移転との順番も決める必要があるため。Phase 4 で Phase 5 に回した確認 (ふだん使うブラウザでのキーの横取り) も、その段階で行う。
+- 設定の項目名は rcssmonitor の設定名に合わせた (`show_player_number`、`field_brush`、`score_board_font` など)。保存先は localStorage で、URL パラメータも同じ名前で受け付ける (`-` 区切りでも書ける)。
+  - URL で指定した値はそのページにだけ効き、保存しない。その後にユーザが変えた項目は保存する。共有されたリンクを開いても、開いた人の設定は変わらない。rcssmonitor は終了時に、コマンドラインで指定した値も保存する。
+- 設定ダイアログ、選手タイプ一覧、ショートカット一覧は、rcssmonitor と同じく開いたまま操作できるウインドウ (モーダルでない `<dialog>`) にした。見出しをドラッグして動かせ、Escape で閉じる。
+- 設定ダイアログの違い
+  - Color タブに設定ファイルの 35 色すべてを並べる (rcssmonitor のダイアログは 30 色)。
+  - Font タブはファミリ名を入力する形にした (ブラウザにはフォント選択のダイアログがない)。
+  - Canvas Size はフィールドの大きさを固定する (ウインドウの大きさは変えられない)。
+  - Anti Aliasing と Draw Info は置かない。
+- メニューバーは rcssmonitor の 5 つのメニュー (Quit、Window Style、About Qt を除く) と同じ。Phase 4 でツールバーに置いた接続、切断、キックオフのボタンは残した。
+- 全画面は Fullscreen API で、ブラウザの決まりにより Escape でも戻る。
+- About には版 (package.json) とビルドのコミットを出す。版は 1.0.0 にした。
+- 直した rcssmonitor の不具合: "Fix" が Auto right になる、Illegal Defense の色の初期値、選手タイプ一覧で数値が 2 つある列が並べ替わらない。
+- メニューバーの高さを整数の画素にした。小数だとその下のフィールドが画素の境目からずれ、スクリーンショットのテストの大きさが 1 画素変わった。

@@ -1,0 +1,107 @@
+name: Release
+
+# Pushing a tag vX.Y.Z builds the app, creates the GitHub release with the
+# single-file HTML and a zip of the multi-file build, and updates GitHub
+# Pages. Run it by hand with an existing tag to build and publish that
+# release again, e.g. after moving the repository (the Pages URL changes).
+# See docs/release.md.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'An existing release tag to build and publish again, e.g. v1.0.0'
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Check that the tag is the package version
+        run: |
+          version="v$(node -p "require('./package.json').version")"
+          if [ "$version" != "$TAG" ]; then
+            echo "::error::the tag $TAG is not the version in package.json ($version)"
+            exit 1
+          fi
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npm run build:single
+      - run: npx playwright install --with-deps chromium firefox
+      - run: npm run test:e2e
+      - name: Package
+        run: |
+          mkdir release
+          cp dist-single/rcssmonitor-web.html "release/rcssmonitor-web-$TAG.html"
+          (cd dist && zip -qr "../release/rcssmonitor-web-$TAG-dist.zip" .)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release
+          path: release/
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: dist
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: release
+          path: release
+      - name: Create the release, or replace its files
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" release/* --clobber
+            exit 0
+          fi
+          notes="docs/release-notes/$TAG.md"
+          if [ -f "$notes" ]; then
+            set -- --notes-file "$notes"
+          else
+            set -- --generate-notes
+          fi
+          gh release create "$TAG" release/* --title "rcssmonitor-web $TAG" --verify-tag "$@"
+
+  pages:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

@@ -31,7 +31,7 @@ rcssmonitor (Qt 版) の機能と、rcssmonitor-web での扱いをまとめた�
 | Yellow / Red Card | main_window.cpp:2166-2267 | 4 | 済 | 右クリックメニューから。ダイアログで選手を選ぶ。右クリックした位置から 3 m 以内の選手をあらかじめ選んでおく (rcssmonitor は空欄)。送信前に unum が 1〜11 かを検証する |
 | Change Playmode (ボール位置の補正つき) | main_window.cpp:2294-2454 | 4 | 済 | 右クリックメニューのサブメニュー (16 モード)。server_param の `coach` / `coach_w_referee` が偽なら無効にして理由を示す。back_pass で何も送られない不具合を直した |
 | 接続していないときの右クリックメニュー | field_canvas.cpp:273 | 4 | 済 | rcssmonitor は項目を有効のまま表示して何もしない。Web 版は項目を無効にして理由を示す |
-| 選手のドラッグ移動 (`dispplayer`) | (未使用) | 将来 | 未着手 | rcssmonitor でも UI がない |
+| 選手のドラッグ移動 (`dispplayer`) | (未使用) | 将来 | 対象外 | v1.0 の対象外 (将来の拡張)。rcssmonitor でも UI がない |
 | 選手の退場 (`dispdiscard`) | (未使用) | — | 対象外 | |
 
 ## 3. 描画
@@ -60,7 +60,7 @@ rcssmonitor (Qt 版) の機能と、rcssmonitor-web での扱いをまとめた�
 | 選手の表示切替 (Ctrl+P) | config_dialog.cpp | 2 | 済 | |
 | 計測ツール (中ボタンでドラッグ) | field_canvas.cpp:240-263, 414-499 | 2 | 済 | Shift+ドラッグも加えた |
 | draw info (v1 の DRAW レコード) | draw_info_painter.cpp | — | 対象外 | バイナリ v1 にしかない |
-| ボール・選手の軌跡 | (`#if 0` で無効) | 将来 | 未着手 | |
+| ボール・選手の軌跡 | (`#if 0` で無効) | 将来 | 対象外 | v1.0 の対象外 (将来の拡張)。rcssmonitor でも無効 |
 | アンチエイリアス | options | — | 対象外 | Canvas では常に有効 |
 
 ## 4. 表示の操作
@@ -72,10 +72,10 @@ rcssmonitor (Qt 版) の機能と、rcssmonitor-web での扱いをまとめた�
 | ダブルクリックで中心を移動 | field_canvas.cpp:134 | 2 | 済 | |
 | 左ドラッグで移動 | field_canvas.cpp:214-233 | 2 | 済 | |
 | フォーカス (B: ボール、P: 選択選手、固定) | field_canvas.cpp:357-381 | 2 | 済 | |
-| 選手選択 (1〜0、-、Ctrl+数字) | config_dialog.cpp:2540 | 2 | 済 | Ctrl+数字はブラウザのタブ切替と重なる。Phase 5 で確かめる |
+| 選手選択 (1〜0、-、Ctrl+数字) | config_dialog.cpp:2540 | 2 | 済 | Ctrl+数字はブラウザのタブ切替より優先する (§8) |
 | 自動選択 (A、L、R) と解除 (U) | field_canvas.cpp:317-354 | 2 | 済 | |
 | マウス位置の座標表示 (ステータスバー) | main_window.cpp:2533 | 2 | 済 | |
-| キャンバスの大きさの指定 | config_dialog.cpp:1570 | 5 | 未着手 | 優先度は低い |
+| キャンバスの大きさの指定 | config_dialog.cpp:1570 | 5 | 済 | 設定ダイアログの Canvas Size。ウインドウではなくフィールドの大きさを固定する。Fit window で元に戻す |
 
 ## 5. ログプレイヤー
 
@@ -99,16 +99,18 @@ rcssmonitor (Qt 版) の機能と、rcssmonitor-web での扱いをまとめた�
 
 | 機能 | rcssmonitor | Phase | 状態 | 備考 |
 |---|---|---|---|---|
-| 設定ダイアログ (Show、Canvas、Color、Font の 4 タブ) | config_dialog.cpp:246-342 | 5 | 未着手 | |
-| 色 35 項目 | options.cpp:98-132 | 5 | 未着手 | Illegal Defense の色の初期値が Pointto の色になる不具合は直す |
-| フォント (スコアボード、選手、計測) | options.cpp:326-328 | 5 | 未着手 | |
-| 選手選択の "Fix" | config_dialog.cpp:2441 | 5 | 未着手 | Auto-right になる不具合は直す |
-| 選手タイプ一覧 (Ctrl+H、16 列、並べ替え) | player_type_dialog.cpp:160-375 | 5 | 未着手 | ホイールで透明度を変える機能は対象外 |
-| ショートカット一覧 | main_window.cpp:1655 | 5 | 未着手 | |
-| メニューバー、ツールバー、ステータスバーの表示切替 | main_window.cpp:529-552 | 5 | 未着手 | |
-| 全画面 (F11、Alt+Enter) | main_window.cpp:561-574 | 5 | 未着手 | Fullscreen API を使う |
-| 設定の保存 (`~/.rcssmonitor.conf`) | options.cpp:333-855 | 5 | 未着手 | localStorage に保存する |
-| コマンドラインオプション | options.cpp:862-1158 | 4〜5 | 作業中 | URL パラメータで代替する。接続 (`connect`、`host`、`port`、`path`、`auto_reconnect_mode`、`auto_reconnect_wait`) は Phase 4 で済 |
+| 設定ダイアログ (Show、Canvas、Color、Font の 4 タブ) | config_dialog.cpp:246-342 | 5 | 済 | View > Preference (Ctrl+V)。開いたまま操作でき、変更はすぐに反映する。キーで表示を切り替えると、ダイアログの表示も追従する。Anti Aliasing と Draw Info は対象外 (§3) |
+| 色 35 項目 | options.cpp:98-132 | 5 | 済 | 設定ファイルの 35 色すべてを Color タブに並べる (rcssmonitor のダイアログは 30 色)。ブラウザの色選択を使う。Default で既定の色、Cancel でダイアログを開いた時点の色に戻す |
+| フォント (スコアボード、選手、計測) | options.cpp:326-328 | 5 | 済 | Font タブで、ファミリ、大きさ (ポイント)、太字を指定する。ブラウザにフォント選択のダイアログはないので、ファミリは名前で入力する (候補の一覧つき) |
+| 選手選択の "Fix" | config_dialog.cpp:2441 | 5 | 済 | 今選ばれている選手 (自動で選ばれた選手を含む) を固定する。rcssmonitor では Auto right になる不具合があった |
+| 選手タイプ一覧 (Ctrl+H、16 列、並べ替え) | player_type_dialog.cpp:160-375 | 5 | 済 | 列の見出しのクリックで昇順・降順に並べ替える。数値が 2 つある列 (Speed Real/Max など) は最初の数値で並べ替える (rcssmonitor ではこれらの列は並べ替わらない)。ホイールで透明度を変える機能は対象外 |
+| ショートカット一覧 | main_window.cpp:1655 | 5 | 済 | Help > Shortcut Keys。キーの一覧と、マウスの操作 |
+| About | main_window.cpp:1621 | 5 | 済 | Help > About。版とビルドのコミット、公式ページとソースコードへのリンク |
+| メニューバー (File、Monitor、Referee、View、Help) | main_window.cpp:632-787 | 5 | 済 | 項目は rcssmonitor と同じ (Quit、Window Style、About Qt を除く)。マウスと矢印キーで操作できる。Referee の Change Playmode は、右クリックメニューと違い、今のボールの位置から補正する (rcssmonitor と同じ) |
+| メニューバー、ツールバー、ステータスバーの表示切替 | main_window.cpp:529-552 | 5 | 済 | View メニュー、Ctrl+M (メニューバー)。設定として保存する。ツールバーには、ログプレイヤーのボタンに加えて接続、切断、キックオフのボタンもある |
+| 全画面 (F11、Alt+Enter) | main_window.cpp:561-574 | 5 | 済 | Fullscreen API を使う。ブラウザの決まりで、Escape でも戻る |
+| 設定の保存 (`~/.rcssmonitor.conf`) | options.cpp:333-855 | 5 | 済 | localStorage に保存する。項目名は rcssmonitor と同じ。保存できない環境では既定値で動く。ウインドウの位置と大きさは対象外 |
+| コマンドラインオプション | options.cpp:862-1158 | 4〜5 | 済 | URL パラメータで代替する。名前は rcssmonitor と同じで、`-` 区切りでも書ける (`?show-view-area=on`)。表示の項目、色、フォント、`timer_interval`、`auto_loop_mode`、バーの表示、接続 (`connect`、`server_host`、`server_port`、`server_ws_path`、`auto_reconnect_mode`、`auto_reconnect_wait`。`host`、`port`、`path` とも書ける)。URL で指定した値は保存しない (その後に変えた項目は保存する)。対象外: `--server-transport` と `--client-version` (WebSocket と JSON のみ)、`--geometry`、`--maximize`、`--full-screen` (ブラウザのウインドウは操作できない。全画面はユーザの操作が必要)、`--auto-quit-*`、`--anti-aliasing`、`--show-draw-info`、ログファイルの指定 (将来の `?log=`) |
 | Window Style、About Qt | main_window.cpp:577-590, 767-783 | — | 対象外 | Qt 固有 |
 | 終了 (Ctrl+Q) | main_window.cpp:275 | — | 対象外 | |
 
@@ -127,5 +129,39 @@ rcssmonitor (Qt 版) の機能と、rcssmonitor-web での扱いをまとめた�
 | オフサイドラインが x = 0 とボールの間にしか引かれない (選手の side を列挙値と比べている) | player_painter.cpp:1034, 1061 | 済 |
 | 左のキーパーのキャッチ範囲に右のキーパーの色を使う (同じ比較の誤り) | player_painter.cpp:545, 563 | 済 |
 | Change Playmode の back_pass で何も送られない | main_window.cpp:2394-2429 | 済 |
-| 設定ダイアログの "Fix" が Auto-right になる | config_dialog.cpp:2441 | 未着手 |
-| Illegal Defense の色の初期値が Pointto の色 | config_dialog.cpp:1258-1260 | 未着手 |
+| 設定ダイアログの "Fix" が Auto-right になる | config_dialog.cpp:2441 | 済 |
+| Illegal Defense の色の初期値が Pointto の色 | config_dialog.cpp:1258-1260 | 済 |
+| 選手タイプ一覧で、数値が 2 つある列が並べ替わらない (セルの文字列を 1 つの数値として読む) | player_type_dialog.cpp:69-75 | 済 |
+
+## 8. キー割り当ての互換表
+
+rcssmonitor のショートカットは、Web 版でも同じキーで使える。ブラウザが予約していてページから横取りできないキー (Chrome と Firefox の Ctrl+N、Ctrl+T、Ctrl+W、Ctrl+Tab、Ctrl+Shift+N / T / W など) は rcssmonitor では使われていないので、代わりのキーは要らない。
+
+- ブラウザの機能と重なるキーは、Web 版がページの中で横取りする (`preventDefault`)。下の表の「ブラウザの機能」は、そのためにページの上では使えなくなる。
+- 文字の入力欄にフォーカスがあるときは、どのキーも横取りしない。ダイアログやメニューの中では、キーはそれらの操作に使われる。
+- macOS では、rcssmonitor と同じく Control キー (⌃) を使う。Command キーでも動くが、⌘H、⌘M、⌘Q、⌘W などは OS やブラウザが先に使う。
+
+| キー | rcssmonitor の機能 | Web 版 | ブラウザの機能 (重なるもの) |
+|---|---|---|---|
+| Ctrl+O | ログを開く | 同じ | ファイルを開く |
+| Ctrl+Q | 終了 | 対象外 (何もしない) | Firefox の終了 (Linux / Windows) |
+| Ctrl+C | 接続 | 同じ。文字を選択している間はコピーに譲る | コピー |
+| Ctrl+L | ライブモード | 同じ | アドレスバー |
+| Ctrl+K | キックオフ | 同じ | 検索 |
+| Ctrl+M | メニューバーの表示切替 | 同じ | Firefox のタブのミュート |
+| Ctrl+H | 選手タイプ一覧 | 同じ | 履歴 |
+| Ctrl+V | 設定ダイアログ | 同じ | 貼り付け |
+| F11、Alt+Enter | 全画面 | 同じ (Fullscreen API)。Escape でも戻る | ブラウザの全画面 |
+| Ctrl+G | 前の得点へ | 同じ | 次を検索 |
+| Ctrl+↑ / ↓ | 速く / 遅く | 同じ | — |
+| Ctrl+Z | 縮小 | 同じ | 元に戻す |
+| Ctrl+A | pointto の表示 | 同じ | すべて選択 |
+| Ctrl+S | スコアボードの表示 | 同じ | ページの保存 |
+| Ctrl+B | ボールの表示 | 同じ | ブックマーク |
+| Ctrl+P | 選手の表示 | 同じ | 印刷 |
+| Ctrl+F | フラグの表示 | 同じ | ページ内検索 |
+| Ctrl+1〜9、Ctrl+0、Ctrl+- | 右チームの選手の選択 | 同じ | タブの切替、ズームのリセット、縮小 |
+| Space、←、→、Home、End、G、文字、数字、- | 再生の操作、表示の切替、左チームの選手の選択 | 同じ | ページのスクロール (フィールドはスクロールしないので影響しない) |
+
+確かめた範囲: 単体テストで、ショートカット一覧 (Help > Shortcut Keys) と実際のキー処理が一致することを確かめた。E2E テストで、主なキーがページに届いて働くことを Chromium と Firefox で確かめた。ただし、自動テストのキー入力はブラウザ自身のショートカット処理を通らないので、上の表の横取りが実際のブラウザで効くかは、手で確かめる必要がある。
+

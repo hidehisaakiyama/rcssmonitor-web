@@ -1,6 +1,6 @@
-// The application window: tool bar, field view and status bar, and the
-// wiring between the log loader, the live connection, the log player and
-// the view (rcssmonitor src/main_window.cpp).
+// The application window: menu bar, tool bar, field view and status bar,
+// the dialogs, and the wiring between the log loader, the live connection,
+// the log player, the view and the settings (rcssmonitor src/main_window.cpp).
 import type { GameStore } from '../core/game-store';
 import { describeFormat } from '../io/format';
 import { LiveClient, type LiveState } from '../io/live/client';
@@ -11,13 +11,25 @@ import {
   saveConnection,
   type ConnectionSettings,
 } from '../options/connection';
+import { DEFAULT_APP_SETTINGS, SettingsStore, type AppSettings } from '../options/settings';
 import { Playback } from '../playback/playback';
 import { ViewState } from '../view/view-state';
-import { ContextMenu } from './context-menu';
+import { ContextMenu, type MenuItem } from './context-menu';
+import { ConfigDialog } from './dialogs/config-dialog';
 import { showConnectDialog } from './dialogs/connect-dialog';
+import { createShortcutDialog, showAboutDialog } from './dialogs/help-dialogs';
+import type { Panel } from './dialogs/panel';
+import { PlayerTypeDialog } from './dialogs/player-type-dialog';
 import { FieldView } from './field-view';
+import { MenuBar } from './menubar';
 import { Referee } from './referee';
-import { handleMonitorKey, handlePlayerKey, handleViewKey } from './shortcuts';
+import {
+  CTRL_LABEL,
+  handleMonitorKey,
+  handlePlayerKey,
+  handleViewKey,
+  handleWindowKey,
+} from './shortcuts';
 import { StatusBar } from './statusbar';
 import { Toolbar } from './toolbar';
 
@@ -30,7 +42,14 @@ export class App {
   readonly live: LiveClient;
   readonly referee: Referee;
   readonly status = new StatusBar();
+  /** Window and log player settings; the view settings are in `view`. */
+  readonly settings: AppSettings = { ...DEFAULT_APP_SETTINGS };
+  readonly config: ConfigDialog;
+  readonly playerTypes: PlayerTypeDialog;
+  private readonly shortcuts: Panel;
+  private readonly settingsStore: SettingsStore;
   private readonly root: HTMLElement;
+  private readonly menubar: MenuBar;
   private readonly toolbar: Toolbar;
   private readonly fileInput: HTMLInputElement;
   private readonly menu = new ContextMenu();
@@ -38,7 +57,9 @@ export class App {
   private dialogOpen = false;
   private loading = false;
   private storeRevision = -1;
+  private playerTypeCount = 0;
   private wheelDelta = 0;
+  private saveTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -68,6 +89,8 @@ export class App {
       nextScore: () => p.goToNextScore(),
       toggleLoop: () => {
         p.loop = !p.loop;
+        this.settings.autoLoop = p.loop;
+        this.settingsChanged();
         this.updateToolbar();
       },
       seek: (i) => p.goToIndex(i),
@@ -89,7 +112,39 @@ export class App {
       }
     });
 
-    root.append(this.toolbar.element, this.fileInput, this.field.element, this.status.element);
+    this.menubar = new MenuBar([
+      { id: 'file', label: 'File', items: () => this.fileMenu() },
+      { id: 'monitor', label: 'Monitor', items: () => this.monitorMenu() },
+      { id: 'referee', label: 'Referee', items: () => this.referee.menuBarItems() },
+      { id: 'view', label: 'View', items: () => this.viewMenu() },
+      { id: 'help', label: 'Help', items: () => this.helpMenu() },
+    ]);
+
+    root.append(
+      this.menubar.element,
+      this.toolbar.element,
+      this.fileInput,
+      this.field.element,
+      this.status.element,
+    );
+    this.config = new ConfigDialog(root, {
+      view: this.view,
+      app: this.settings,
+      applyCanvasSize: () => {
+        this.applyCanvasSize();
+        this.settingsChanged();
+      },
+    });
+    this.playerTypes = new PlayerTypeDialog(root, () => this.store);
+    this.shortcuts = createShortcutDialog(root);
+    this.settingsStore = new SettingsStore({
+      options: this.view.options,
+      colors: this.view.colors,
+      fonts: this.view.fonts,
+      app: this.settings,
+    });
+    this.view.onChange(() => this.settingsChanged());
+
     this.status.setText(
       'Open a game log (.rcg / .rcg.gz) with the open button, Ctrl+O or by dropping it here, ' +
         'or connect to rcssserver (server::ws_port).',
@@ -110,8 +165,11 @@ export class App {
     });
 
     window.addEventListener('keydown', (e) => this.keydown(e));
-    // Say (dispbye) when the page goes away.
-    window.addEventListener('pagehide', () => this.live.disconnect());
+    window.addEventListener('pagehide', () => {
+      // Say (dispbye), and keep the settings.
+      this.live.disconnect();
+      this.saveSettings();
+    });
     this.field.element.addEventListener('wheel', (e) => this.wheel(e), { passive: false });
     this.attachDrop(root);
     this.updateToolbar();
@@ -121,13 +179,184 @@ export class App {
     return this.playback.store;
   }
 
-  /** Applies URL parameters (rcssmonitor's command line options), e.g. ?connect=1&port=6080. */
-  applyUrlParams(params: URLSearchParams): void {
+  /**
+   * Applies the saved settings and the URL parameters (rcssmonitor's
+   * command line options), e.g. ?show_view_area=on&connect=1&port=6080, and
+   * connects if asked to.
+   */
+  start(params: URLSearchParams = new URLSearchParams()): void {
+    this.settingsStore.load(params);
+    this.applyAppSettings();
+    this.view.changed();
     const { settings, connect } = connectionFromUrl(this.connection, params);
     this.connection = settings;
     if (connect) {
       this.connect(settings, false);
     }
+  }
+
+  // ---- settings and the window
+
+  /** Shows the bars, sizes the field and sets up the player from `settings`. */
+  private applyAppSettings(): void {
+    const s = this.settings;
+    this.menubar.element.hidden = !s.showMenuBar;
+    this.toolbar.element.hidden = !s.showToolBar;
+    this.status.element.hidden = !s.showStatusBar;
+    this.playback.defaultInterval = s.timerInterval;
+    this.playback.loop = s.autoLoop;
+    this.applyCanvasSize();
+    this.updateToolbar();
+  }
+
+  /** A fixed field size (Canvas Size of the configuration), or the window's. */
+  private applyCanvasSize(): void {
+    const { canvasWidth: w, canvasHeight: h } = this.settings;
+    const fixed = w > 0 && h > 0;
+    Object.assign(this.field.element.style, {
+      flex: fixed ? 'none' : '',
+      width: fixed ? `${w}px` : '',
+      height: fixed ? `${h}px` : '',
+    });
+  }
+
+  private toggleBar(name: 'showMenuBar' | 'showToolBar' | 'showStatusBar'): void {
+    this.settings[name] = !this.settings[name];
+    this.applyAppSettings();
+    this.settingsChanged();
+  }
+
+  /** Full screen (F11, Alt+Enter), with the Fullscreen API. */
+  toggleFullScreen(): void {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen();
+    } else {
+      document.documentElement.requestFullscreen().catch((e: unknown) => {
+        this.status.showMessage(
+          `Full screen is not available: ${e instanceof Error ? e.message : String(e)}`,
+          5000,
+        );
+      });
+    }
+  }
+
+  /** Saves the settings shortly after the last change. */
+  private settingsChanged(): void {
+    clearTimeout(this.saveTimer);
+    this.saveTimer = setTimeout(() => this.saveSettings(), 500);
+  }
+
+  private saveSettings(): void {
+    clearTimeout(this.saveTimer);
+    this.saveTimer = undefined;
+    this.settingsStore.save();
+  }
+
+  // ---- menus (MainWindow::createMenus)
+
+  private fileMenu(): MenuItem[] {
+    return [
+      {
+        id: 'file-open',
+        label: 'Open Game Log...',
+        shortcut: `${CTRL_LABEL}O`,
+        action: () => this.fileInput.click(),
+      },
+    ];
+  }
+
+  private monitorMenu(): MenuItem[] {
+    const idle = this.live.state === 'idle';
+    return [
+      {
+        id: 'monitor-connect',
+        label: 'Connect',
+        shortcut: `${CTRL_LABEL}C`,
+        title: `Connect to ${this.connection.host}:${this.connection.port}${this.connection.path}`,
+        disabled: !idle,
+        action: () => this.connect(this.connection),
+      },
+      {
+        id: 'monitor-connect-to',
+        label: 'Connect to ...',
+        disabled: !idle,
+        action: () => void this.connectTo(),
+      },
+      {
+        id: 'monitor-disconnect',
+        label: 'Disconnect',
+        disabled: idle,
+        action: () => this.disconnect(),
+      },
+      { kind: 'separator' },
+      {
+        id: 'monitor-live',
+        label: 'Live Mode',
+        shortcut: `${CTRL_LABEL}L`,
+        disabled: this.live.state !== 'connected',
+        action: () => this.goLive(),
+      },
+    ];
+  }
+
+  private viewMenu(): MenuItem[] {
+    const s = this.settings;
+    return [
+      {
+        id: 'view-menu-bar',
+        label: 'Menu Bar',
+        shortcut: `${CTRL_LABEL}M`,
+        checked: s.showMenuBar,
+        action: () => this.toggleBar('showMenuBar'),
+      },
+      {
+        id: 'view-tool-bar',
+        label: 'Tool Bar',
+        checked: s.showToolBar,
+        action: () => this.toggleBar('showToolBar'),
+      },
+      {
+        id: 'view-status-bar',
+        label: 'Status Bar',
+        checked: s.showStatusBar,
+        action: () => this.toggleBar('showStatusBar'),
+      },
+      { kind: 'separator' },
+      {
+        id: 'view-player-types',
+        label: 'Player Type List',
+        shortcut: `${CTRL_LABEL}H`,
+        checked: this.playerTypes.panel.isOpen,
+        action: () => this.playerTypes.panel.toggle(),
+      },
+      { kind: 'separator' },
+      {
+        id: 'view-full-screen',
+        label: 'Full Screen',
+        shortcut: 'F11',
+        checked: document.fullscreenElement !== null,
+        action: () => this.toggleFullScreen(),
+      },
+      {
+        id: 'view-preference',
+        label: 'Preference',
+        shortcut: `${CTRL_LABEL}V`,
+        checked: this.config.panel.isOpen,
+        action: () => this.config.panel.toggle(),
+      },
+    ];
+  }
+
+  private helpMenu(): MenuItem[] {
+    return [
+      { id: 'help-about', label: 'About', action: () => void showAboutDialog(this.root) },
+      {
+        id: 'help-shortcuts',
+        label: 'Shortcut Keys',
+        checked: this.shortcuts.isOpen,
+        action: () => this.shortcuts.toggle(),
+      },
+    ];
   }
 
   async open(file: File): Promise<void> {
@@ -174,6 +403,16 @@ export class App {
     this.field.setStore(store);
     this.storeRevision = store?.revision ?? -1;
     this.playback.setStore(store);
+    this.updatePlayerTypes();
+  }
+
+  /** Updates the player type list if it is open and the types changed. */
+  private updatePlayerTypes(): void {
+    const count = this.store?.playerTypes.length ?? 0;
+    if (this.playerTypes.panel.isOpen && count !== this.playerTypeCount) {
+      this.playerTypes.update();
+    }
+    this.playerTypeCount = count;
   }
 
   /** Connects with the settings; saves them if asked to. */
@@ -240,6 +479,7 @@ export class App {
       this.storeRevision = store.revision;
       this.playback.framesAdded();
       this.updateToolbar();
+      this.updatePlayerTypes();
     }
     this.playback.tick(now);
   }
@@ -263,19 +503,21 @@ export class App {
     if (target instanceof HTMLInputElement && target.type !== 'range') {
       return;
     }
-    // Keys in an open dialog or the pop-up menu belong to them.
-    if (target?.closest('dialog[open], .context-menu') || this.menu.isOpen) {
+    // Keys in an open dialog or a menu belong to them.
+    if (target?.closest('dialog[open], .context-menu') || this.menu.isOpen || this.menubar.isOpen) {
       return;
     }
     // Let a focused button take Space and Enter.
     if (target instanceof HTMLButtonElement && (e.key === ' ' || e.key === 'Enter')) {
       return;
     }
-    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'o') {
-      e.preventDefault();
-      this.fileInput.click();
-      return;
-    }
+    const windowKeys = {
+      open: () => this.fileInput.click(),
+      toggleMenuBar: () => this.toggleBar('showMenuBar'),
+      playerTypes: () => this.playerTypes.panel.toggle(),
+      preference: () => this.config.panel.toggle(),
+      fullScreen: () => this.toggleFullScreen(),
+    };
     const monitor = {
       // Connect (Ctrl+C): to the last server, without asking. Like the
       // action in rcssmonitor, it does nothing while connected.
@@ -288,6 +530,7 @@ export class App {
       kickOff: () => this.referee.kickOff(),
     };
     if (
+      handleWindowKey(windowKeys, e) ||
       handleMonitorKey(monitor, e) ||
       handlePlayerKey(this.playback, e) ||
       handleViewKey(this.view, e)

@@ -5,6 +5,7 @@
 import type { Frame } from '../core/frame';
 import type { LiveState } from '../io/live/client';
 import { ICONS, type IconName } from './icons';
+import { CTRL_LABEL } from './shortcuts';
 
 export interface ToolbarActions {
   open(): void;
@@ -36,8 +37,7 @@ export interface ToolbarState {
   readonly connection: LiveState;
 }
 
-const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
-const CTRL = isMac ? '⌘' : 'Ctrl+';
+const CTRL = CTRL_LABEL;
 
 /** "1746" or "1746.3" when stopped time advances. */
 export function cycleLabel(frame: Frame): string {

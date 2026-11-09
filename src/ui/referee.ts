@@ -15,7 +15,8 @@ import {
   dispFoul,
   type Card,
 } from '../io/live/commands';
-import type { MenuItem } from './context-menu';
+import type { ActionItem, MenuItem } from './context-menu';
+import { CTRL_LABEL } from './shortcuts';
 import { showCardDialog, type CardTarget } from './dialogs/card-dialog';
 import type { StatusBar } from './statusbar';
 
@@ -122,39 +123,62 @@ export class Referee {
 
   /** The pop-up menu for a right click at `p` on the field. */
   menuItems(p: Vec2): MenuItem[] {
-    const off = !this.connected;
-    const title = off ? NOT_CONNECTED : undefined;
-    const item = (id: string, label: string, action: () => void): MenuItem => ({
-      id,
-      label,
-      action,
-      disabled: off,
-      title,
-    });
-    const noCoach = !off && !this.coachMode;
     return [
-      item('menu-drop-ball', 'Drop Ball', () => this.dropBall(p)),
-      item('menu-free-kick-left', 'Free Kick Left', () => this.freeKick(Side.Left, p)),
-      item('menu-free-kick-right', 'Free Kick Right', () => this.freeKick(Side.Right, p)),
+      this.item('menu-drop-ball', 'Drop Ball', () => this.dropBall(p)),
+      this.item('menu-free-kick-left', 'Free Kick Left', () => this.freeKick(Side.Left, p)),
+      this.item('menu-free-kick-right', 'Free Kick Right', () => this.freeKick(Side.Right, p)),
       { kind: 'separator' },
-      item('menu-yellow-card', 'Yellow Card...', () => void this.card('yellow', p)),
-      item('menu-red-card', 'Red Card...', () => void this.card('red', p)),
+      ...this.cardItems(p, 'menu'),
       { kind: 'separator' },
-      {
-        kind: 'submenu',
-        id: 'menu-change-playmode',
-        label: 'Change Playmode',
-        disabled: off || noCoach,
-        title: noCoach ? NO_COACH_MODE : title,
-        items: CHANGE_PLAYMODE_MODES.map((mode) => {
-          const name = playModeToString(mode);
-          return {
-            id: `menu-playmode-${name}`,
-            label: name,
-            action: () => this.changePlayMode(mode, p),
-          };
-        }),
-      },
+      this.changePlayModeMenu(p, 'menu'),
     ];
+  }
+
+  /** The Referee menu of the menu bar (MainWindow::createMenuReferee). */
+  menuBarItems(): MenuItem[] {
+    // Without a point, Change Playmode starts from the ball (MainWindow::changePlayMode).
+    const ball = this.currentFrame()?.ball ?? { x: 0, y: 0 };
+    return [
+      {
+        ...this.item('referee-kick-off', 'KickOff', () => this.kickOff()),
+        shortcut: `${CTRL_LABEL}K`,
+      },
+      { kind: 'separator' },
+      ...this.cardItems(null, 'referee'),
+      { kind: 'separator' },
+      this.changePlayModeMenu(ball, 'referee'),
+    ];
+  }
+
+  private item(id: string, label: string, action: () => void): ActionItem {
+    const off = !this.connected;
+    return { id, label, action, disabled: off, title: off ? NOT_CONNECTED : undefined };
+  }
+
+  private cardItems(p: Vec2 | null, prefix: string): MenuItem[] {
+    return [
+      this.item(`${prefix}-yellow-card`, 'Yellow Card...', () => void this.card('yellow', p)),
+      this.item(`${prefix}-red-card`, 'Red Card...', () => void this.card('red', p)),
+    ];
+  }
+
+  private changePlayModeMenu(p: Vec2, prefix: string): MenuItem {
+    const off = !this.connected;
+    const noCoach = !off && !this.coachMode;
+    return {
+      kind: 'submenu',
+      id: `${prefix}-change-playmode`,
+      label: 'Change Playmode',
+      disabled: off || noCoach,
+      title: noCoach ? NO_COACH_MODE : off ? NOT_CONNECTED : undefined,
+      items: CHANGE_PLAYMODE_MODES.map((mode) => {
+        const name = playModeToString(mode);
+        return {
+          id: `${prefix}-playmode-${name}`,
+          label: name,
+          action: () => this.changePlayMode(mode, p),
+        };
+      }),
+    };
   }
 }

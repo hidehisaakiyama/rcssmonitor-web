@@ -224,6 +224,17 @@ export class ViewState {
     this.changed();
   }
 
+  /**
+   * Keeps the selected player, also one chosen automatically (the "Fix"
+   * choice of the configuration dialog; rcssmonitor sets Auto right there).
+   */
+  setSelectFix(): void {
+    if (this.selectType !== 'fix') {
+      this.selectType = 'fix';
+      this.changed();
+    }
+  }
+
   /** A, L, R keys: pressing the same key again unselects. */
   toggleAutoSelect(type: 'autoLeft' | 'autoRight' | 'autoAll'): void {
     if (this.selectType === type) {

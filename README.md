@@ -2,21 +2,23 @@
 
 A browser-based monitor for the [RoboCup Soccer Simulator](https://github.com/rcsoccersim) 2D server (rcssserver).
 
-**Status: early development (Phase 4).** Game logs can be opened (button, Ctrl+O or drag and drop) and played on a 2D field drawn like rcssmonitor, with rcssmonitor's player controls. Live games can be watched by connecting to rcssserver over WebSocket, with the referee commands of rcssmonitor (kick off, drop ball, free kicks, cards, play mode changes). The settings and the menus come next.
+It follows the features and the look of [rcssmonitor](https://github.com/rcsoccersim/rcssmonitor):
 
-## Goals
+- Watch live games by connecting to rcssserver over WebSocket with the JSON monitor protocol (`(dispinit version -1)`), with rcssmonitor's referee commands (kick off, drop ball, free kicks, cards, play mode changes).
+- Replay game logs (`.rcg` / `.rcg.gz`) in JSON and text (v4–v6) formats, with rcssmonitor's player controls.
+- The 2D field drawn like rcssmonitor, its preference dialog (Show, Canvas, Color, Font), the player type list and its keyboard shortcuts.
 
-- Watch live games by connecting to rcssserver over WebSocket using the JSON monitor protocol (`(dispinit version -1)`).
-- Replay game logs (`.rcg` / `.rcg.gz`) in JSON and text (v4–v6) formats.
-- Follow the features and look of [rcssmonitor](https://github.com/rcsoccersim/rcssmonitor) as closely as possible, including the referee controls.
-- Add a 3D view later.
+A 3D view is planned. It is meant for servers on the same machine or the local network; connections over the Internet and TLS (`wss://`) are not supported.
 
-It is meant for servers on the same machine or the local network. It does not support connections over the Internet or TLS (`wss://`).
+## Getting it
 
-## Distribution (planned)
+> The first release (v1.0) is being prepared. Until then, build it from the source (see [Development](#development)); the links below work from that release on.
 
-- **Single HTML file** attached to each release. Open it from disk (`file://`) to connect to a server anywhere on your LAN.
-- **GitHub Pages**: for servers on `localhost` and for replaying logs. A page served over HTTPS cannot open plain `ws://` connections to other machines.
+- **Single HTML file**: download `rcssmonitor-web-vX.Y.Z.html` from the [releases](https://github.com/hidehisaakiyama/rcssmonitor-web/releases) and open it from disk (`file://`). It replays logs and connects to servers anywhere on your LAN.
+- **GitHub Pages**: https://hidehisaakiyama.github.io/rcssmonitor-web/ for replaying logs and for servers on `localhost`. A page served over HTTPS cannot open plain `ws://` connections to other machines.
+- **Your own web server**: unpack `rcssmonitor-web-vX.Y.Z-dist.zip` from the releases.
+
+It runs in current Chrome and Firefox. Settings are kept in the browser (localStorage).
 
 ## Server requirements
 
@@ -30,15 +32,21 @@ If `server::ws_allowed_origins` is set, it must include the origin of the page. 
 
 Changing the play mode from the monitor needs the coach mode (`server::coach=true` or `server::coach_w_referee=true`).
 
-## Connecting
+## Usage
 
-Use the connect button (host, port and path; the default is `localhost:6080/monitor`), or Ctrl+C to connect again to the last server. URL parameters connect at start-up, like rcssmonitor's command line options:
+- **Logs**: File > Open Game Log (Ctrl+O), the open button, or drop a file on the window.
+- **Live**: Monitor > Connect to ... (host, port and path; the default is `localhost:6080/monitor`), or Monitor > Connect (Ctrl+C) to connect again to the last server. While connected, the view follows the newest frame (live mode, Ctrl+L); step back to look at earlier frames.
+- **Referee**: the Referee menu, and the pop-up menu of the field (right click) for commands at a point.
+- **View**: View > Preference (Ctrl+V), View > Player Type List (Ctrl+H), Help > Shortcut Keys.
+
+URL parameters stand in for rcssmonitor's command line options, with the same names (also written with `-`). For example:
 
 ```
-rcssmonitor-web.html?connect=1&host=192.168.0.10&port=6080&path=/monitor&auto_reconnect_mode=on&auto_reconnect_wait=5
+rcssmonitor-web.html?connect=1&server_host=192.168.0.10&server_port=6080&auto_reconnect_mode=on
+rcssmonitor-web.html?show_view_area=on&show-offside-line=on&grid_step=10&field_brush=1fa01f&timer_interval=50
 ```
 
-While connected, the view follows the newest frame (live mode, Ctrl+L); step back to look at earlier frames. The referee commands are in the pop-up menu of the field (right click) and on the tool bar (kick off, Ctrl+K).
+Values given in the URL apply to that page; they are not saved unless changed afterwards. See [docs/parity.md](docs/parity.md) for the full list and for how each rcssmonitor feature and key is handled.
 
 ## Development
 
@@ -60,7 +68,7 @@ npm run replay-server -- test/fixtures/json-sample.rcg.gz  # a stand-in server o
 
 The replay server plays a game log to monitors as rcssserver does with `server::ws_port`, and prints the commands it receives. See [tools/replay-server/README.md](tools/replay-server/README.md).
 
-See [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md) (Japanese) for the plan, [docs/protocol.md](docs/protocol.md) for the protocol notes, and [docs/parity.md](docs/parity.md) for the feature comparison with rcssmonitor.
+See [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md) (Japanese) for the plan, [docs/protocol.md](docs/protocol.md) for the protocol notes, [docs/parity.md](docs/parity.md) for the feature comparison with rcssmonitor, and [docs/release.md](docs/release.md) for making a release.
 
 ## License
 
