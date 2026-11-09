@@ -39,7 +39,8 @@ function drawLines(p: QtPainter, vp: Viewport, view: ViewState, sp: ServerParam)
   p.drawLine(rightX, bottomY, leftX, bottomY);
   p.drawLine(leftX, bottomY, leftX, topY);
 
-  if (sp.keepaway_mode || view.options.showKeepawayArea) {
+  // "keepaway" in server_param (rcssmonitor reads it into keepaway_mode_).
+  if (sp.keepaway || view.options.showKeepawayArea) {
     // The keepaway area instead of the center line and circle.
     p.drawRect(
       vp.screenX(-sp.keepaway_length * 0.5),
