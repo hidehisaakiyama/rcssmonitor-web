@@ -650,17 +650,33 @@ interface AimHook {
   };
 }
 
-/** The window point of a field point at a height, in 3D. */
+/**
+ * The window point of a field point at a height, in 3D, in whole pixels: a
+ * click arrives in whole pixels, and from afar one pixel is 0.1-0.2 m.
+ */
 const windowOf = (page: Page, x: number, y: number, height = 0) =>
   page.evaluate(
     ({ x, y, height }) => {
       const field = (window.rcssmonitorWeb as AimHook).field;
       const r = field.element.getBoundingClientRect();
       const s = field.renderer.fieldToScreen(x, y, height);
-      return s && { x: r.left + s.x, y: r.top + s.y };
+      return s && { x: Math.round(r.left + s.x), y: Math.round(r.top + s.y) };
     },
     { x, y, height },
   );
+
+/** Waits until the 3D camera stops (the broadcast camera glides after the ball). */
+const cameraStill = (page: Page) =>
+  expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (
+            window.rcssmonitorWeb as { field: { renderer: { animating?(): boolean } } }
+          ).field.renderer.animating?.() ?? false,
+      ),
+    )
+    .toBe(false);
 
 /** What a right click at a field point at a height aims at. */
 async function aimAt(page: Page, x: number, y: number, height = 0): Promise<FieldTarget | null> {
@@ -723,6 +739,7 @@ test('sends the referee commands aimed in 3D', async ({ page }) => {
     await expect(page.locator('#connection-status')).toContainText('Connected');
     await wait3d(page);
     await page.keyboard.press('ArrowLeft'); // stay on one frame
+    await cameraStill(page);
     const commands = () => server.commands.map((c) => c.text);
     const box = await page.locator('.field-view').boundingBox();
     if (!box) {
@@ -776,6 +793,7 @@ test('sends the referee commands aimed in 3D', async ({ page }) => {
       .toBe(`(dispcard ${nearest.side} ${nearest.unum} yellow)`);
 
     // On the ground: the ball there.
+    await cameraStill(page);
     const at = await aimAt(page, 10, -5);
     const w = await windowOf(page, 10, -5);
     if (!at?.point || !w) {
