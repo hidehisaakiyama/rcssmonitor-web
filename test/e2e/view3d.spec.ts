@@ -43,6 +43,15 @@ interface Renderer {
       labels: string[];
     };
     labels: string[];
+    numberPositions: ({ x: number; y: number; z: number } | null)[];
+    numberHeight: number;
+    staminaBars: {
+      side: number;
+      unum: number;
+      stamina: number | null;
+      capacity: number | null;
+      at: { x: number; y: number; z: number };
+    }[];
     frameIndex: number;
     drawCalls: number;
   };
@@ -349,13 +358,17 @@ test('shows a live game one cycle behind, to move smoothly', async ({ page }) =>
     await expect(page.locator('#connection-status')).toContainText('Connected');
     await page.keyboard.press('d');
     await wait3d(page);
+    // Often: until the next draw after a frame arrives (from software
+    // rendering, a good part of the time), the last one drawn is older.
     await expect
-      .poll(() =>
-        hook(page, (h) => {
-          const r = h.field.renderer.inspect?.();
-          const count = (h.playback as unknown as { frameCount: number }).frameCount;
-          return count >= 3 && r?.frameIndex === count - 2;
-        }),
+      .poll(
+        () =>
+          hook(page, (h) => {
+            const r = h.field.renderer.inspect?.();
+            const count = (h.playback as unknown as { frameCount: number }).frameCount;
+            return count >= 3 && r?.frameIndex === count - 2;
+          }),
+        { intervals: [50] },
       )
       .toBe(true);
   } finally {
@@ -900,4 +913,176 @@ test('draws the overlays of the 2D view in 3D', async ({ page }) => {
       labels: [],
     });
   expect((await scene(page))?.labels[6]).toBe('7');
+});
+
+test('draws the stamina and the capacity as bars in 3D', async ({ page }) => {
+  await openApp(page, '?view_3d=on&camera_3d=broadcast&show_stamina=on&show_stamina_capacity=on');
+  await wait3d(page);
+  await loadLog(page, 'json-sample.rcg.gz');
+  await hook(page, (h) => {
+    h.showFrame(31);
+    h.view.selectPlayer(7);
+  });
+  await expect(page.locator('#frame-label')).toHaveText('32 (32 / 267)');
+  const bars = async () => (await scene(page))?.staminaBars ?? [];
+  // Every player, with both bars, as long as what is left.
+  const left7 = await page.evaluate(() => {
+    const field = (
+      window.rcssmonitorWeb as {
+        field: {
+          frameIndex: number;
+          gameStore: {
+            serverParam: { stamina_max: number; stamina_capacity: number };
+            frame(i: number): { players: { stamina: number; capacity?: number }[] };
+          };
+        };
+      }
+    ).field;
+    const p = field.gameStore.frame(field.frameIndex).players[6];
+    const sp = field.gameStore.serverParam;
+    return {
+      stamina: Math.min(1, (p?.stamina ?? 0) / sp.stamina_max),
+      capacity: (p?.capacity ?? 0) / sp.stamina_capacity,
+    };
+  });
+  const seven = async () => (await bars()).find((b) => b.side === Side.Left && b.unum === 7);
+  // Drawn for cycle 32 (not the frame before, at full stamina).
+  await expect.poll(async () => (await seven())?.stamina ?? 0).toBeCloseTo(left7.stamina, 5);
+  expect((await seven())?.capacity).toBeCloseTo(left7.capacity, 5);
+  expect(await bars()).toHaveLength(22);
+
+  // The server does not tell a player the others' stamina: the player
+  // camera (by the server rules) shows only its own, over its shoulder.
+  await page.locator('#camera-select').selectOption('player');
+  await expect
+    .poll(async () => (await bars()).map((b) => [b.side, b.unum]))
+    .toEqual([[Side.Left, 7]]);
+
+  // Under the number as the camera sees it, from the side and from above
+  // (where a height would put them on the number).
+  for (const camera of ['broadcast', 'top']) {
+    await page.locator('#camera-select').selectOption(camera);
+    await cameraStill(page);
+    const measure = () =>
+      page.evaluate(() => {
+        const field = (
+          window.rcssmonitorWeb as {
+            field: {
+              frameIndex: number;
+              gameStore: { frame(i: number): { players: { x: number; y: number }[] } };
+              renderer: {
+                fieldToScreen(x: number, y: number, h: number): { x: number; y: number } | null;
+                inspect(): {
+                  numberPositions: ({ x: number; y: number; z: number } | null)[];
+                  numberHeight: number;
+                  staminaBars: {
+                    side: number;
+                    unum: number;
+                    at: { x: number; y: number; z: number };
+                  }[];
+                };
+              };
+            };
+          }
+        ).field;
+        const r = field.renderer;
+        const state = r.inspect();
+        const b = state.staminaBars.find((q) => q.side === 1 && q.unum === 7);
+        const n = state.numberPositions[6];
+        const p = field.gameStore.frame(field.frameIndex).players[6];
+        if (!b || !n || !p) {
+          return null;
+        }
+        const number = r.fieldToScreen(n.x, n.z, n.y);
+        const bar = r.fieldToScreen(b.at.x, b.at.z, b.at.y);
+        return (
+          number &&
+          bar && {
+            pixels: bar.y - number.y,
+            // From above: the bars below the number on the screen (+Z),
+            // the number right of the kickable area (1.085 m) and its foot
+            // on the player's center line (the text is 40 / 64 of the label).
+            below: b.at.z - n.z,
+            right: n.x - p.x,
+            up: p.y - n.z,
+            textHalf: (state.numberHeight * 20) / 64,
+          }
+        );
+      });
+    // As drawn with this camera (the next draw after the switch).
+    if (camera === 'top') {
+      // As 2D: to the right of the kickable area, the bars under the text.
+      await expect.poll(async () => (await measure())?.right ?? 0).toBeGreaterThan(1.085);
+      const m = await measure();
+      expect(m?.up).toBeCloseTo(m?.textHalf ?? 0, 5);
+      expect(m?.below).toBeGreaterThan(m?.textHalf ?? 1);
+      expect(m?.pixels).toBeGreaterThan(0);
+    } else {
+      // Above the head, the bars under the number.
+      await expect.poll(async () => (await measure())?.pixels ?? 0).toBeGreaterThan(3);
+      expect((await measure())?.right).toBeCloseTo(0, 5);
+    }
+  }
+
+  // S turns, as in rcssmonitor: from both, neither, the stamina, the capacity, both.
+  await page.locator('#camera-select').selectOption('broadcast');
+  const shown = async () => {
+    const b = await bars();
+    return [b.some((q) => q.stamina !== null), b.some((q) => q.capacity !== null)];
+  };
+  for (const next of [
+    [false, false],
+    [true, false],
+    [false, true],
+    [true, true],
+  ]) {
+    await page.keyboard.press('s');
+    await expect.poll(shown).toEqual(next);
+  }
+  // The Show options, as the texts in 2D.
+  await hook(page, (h) => {
+    h.view.set('showStaminaCapacity', false);
+  });
+  await expect.poll(async () => (await bars()).every((b) => b.capacity === null)).toBe(true);
+  await hook(page, (h) => {
+    h.view.set('showStamina', false);
+  });
+  await expect.poll(bars).toEqual([]);
+});
+
+test('writes the numbers from the top camera as large as the 2D player font', async ({ page }) => {
+  await openApp(page, '?view_3d=on&camera_3d=top');
+  await wait3d(page);
+  await loadLog(page, 'json-sample.rcg.gz');
+  /** The height of the numbers' text on the screen (40 of the label's 64 px), in pixels. */
+  const textPixels = () =>
+    page.evaluate(() => {
+      const r = (
+        window.rcssmonitorWeb as {
+          field: {
+            renderer: {
+              fieldToScreen(x: number, y: number): { x: number; y: number } | null;
+              inspect(): { numberHeight: number };
+            };
+          };
+        }
+      ).field.renderer;
+      const a = r.fieldToScreen(0, 0);
+      const b = r.fieldToScreen(10, 0);
+      const perMeter = a && b ? (b.x - a.x) / 10 : 0;
+      return (r.inspect().numberHeight * 40 * perMeter) / 64;
+    });
+  await expect.poll(textPixels).toBeCloseTo(12, 0); // 9 pt
+  // Whatever the size of the window.
+  await page.setViewportSize({ width: 900, height: 600 });
+  await expect.poll(textPixels).toBeCloseTo(12, 0);
+  // As the Font tab's player font.
+  await hook(page, (h) => {
+    h.view.fonts.player.size = 20;
+    h.view.changed();
+  });
+  await expect.poll(textPixels).toBeCloseTo(20, 0);
+  // From the side, the labels keep their size in meters.
+  await page.locator('#camera-select').selectOption('broadcast');
+  await expect.poll(async () => (await scene(page))?.numberHeight).toBe(1.3);
 });

@@ -25,7 +25,9 @@
 //   point, the catch, tackle and kick acceleration areas, the pointto
 //   lines, the offside lines and the ball's path; their texts go to the
 //   HUD (labels()). The player type is written with the number, which takes
-//   the illegal defense color as in 2D. Not the stamina.
+//   the illegal defense color as in 2D. The stamina and the stamina
+//   capacity are bars above the head, facing the camera (the 2D view writes
+//   their numbers).
 // - To tell the ends apart, the goal nets, the boards around the pitch and
 //   the banners above and behind the goals are in the team colors
 //   (stadium.ts; the boards and the banners can be hidden). The HUD may show
@@ -84,6 +86,7 @@ import type { GameStore } from '../../core/game-store';
 import { DEG2RAD, RAD2DEG, type Vec2 } from '../../core/geometry';
 import { DEFAULT_PLAYER_TYPE, DEFAULT_SERVER_PARAM, type ServerParam } from '../../core/params';
 import { guideShown, type CameraGuide, type GuideMode } from '../hud/guides';
+import type { FontSpec } from '../palette';
 import { playerStyle } from '../player-style';
 import type { FieldRenderer, PlayerHit, SceneSnapshot, ScreenLabel } from '../renderer';
 import type { ViewState } from '../view-state';
@@ -103,6 +106,9 @@ import { Overlays, type OverlayState } from './overlays';
 import { DEFAULT_PLAYER_CAMERA, PlayerCamera, type PlayerCameraOptions } from './player-camera';
 import {
   ballCenterHeight,
+  capacityRate,
+  staminaHue,
+  staminaRate,
   ballRadius,
   fitCameraPosition,
   GOAL_HEIGHT,
@@ -122,6 +128,23 @@ const BODY_HEIGHT = 1.4;
 const HEAD_RADIUS = 0.22;
 const HEAD_HEIGHT = BODY_HEIGHT + HEAD_RADIUS + 0.03;
 const NUMBER_HEIGHT = HEAD_HEIGHT + 0.75;
+/**
+ * The stamina bars under the number, as the camera sees it: the stamina,
+ * and below it, thinner, the stamina capacity. The number and the card go
+ * up by BAR_LIFT, so that from the side the bars are above the head.
+ */
+const BAR = Object.freeze({
+  width: 1.4,
+  stamina: 0.2,
+  capacity: 0.1,
+  /** Between the number's text and the bars, and between the bars. */
+  gap: 0.08,
+  /** The frame of the background around the fill. */
+  frame: 0.03,
+});
+const BAR_LIFT = 0.45;
+/** The capacity bar's fill. */
+const CAPACITY_COLOR = '#4aa3ff';
 /** The smoothing cameras count as still within this distance of where they go. */
 const SETTLED = 0.02;
 
@@ -129,6 +152,12 @@ const SETTLED = 0.02;
 const LABEL_WIDTH = 192;
 const LABEL_HEIGHT = 64;
 const LABEL_SCALE = 1.3;
+/** The size of the label's text on its canvas (px). */
+const LABEL_FONT = 40;
+/** From the top camera, between the circle on the ground and the number (m). */
+const LABEL_GAP = 0.25;
+/** Half the height of the number's text (40 px of the 64 px label). */
+const NUMBER_TEXT_HALF = (LABEL_SCALE * 40) / 64 / 2;
 const CARD_WIDTH = 0.42;
 
 /** What the end-to-end tests read. */
@@ -146,6 +175,15 @@ export interface Render3DState {
   readonly rings: number;
   readonly cards: number;
   readonly viewAreas: number;
+  /** The stamina bars: the stamina and the capacity drawn (0-1; null: no capacity bar). */
+  readonly staminaBars: readonly {
+    readonly side: Side;
+    readonly unum: number;
+    readonly stamina: number | null;
+    readonly capacity: number | null;
+    /** Near the top of the first bar, in world coordinates. */
+    readonly at: World;
+  }[];
   readonly camera: {
     readonly mode: CameraMode;
     readonly position: World;
@@ -157,6 +195,10 @@ export interface Render3DState {
   readonly overlays: OverlayState;
   /** The number labels shown (number, player type), by player index. */
   readonly labels: readonly string[];
+  /** Where they are (their centers), by player index; null: not shown. */
+  readonly numberPositions: readonly (World | null)[];
+  /** The height of a number label in meters (its text is 40 / 64 of it). */
+  readonly numberHeight: number;
   /** The ends in the team colors: the nets (left, right), the boards and the banners. */
   readonly stadium: StadiumState & { readonly nets: readonly string[] };
   /** The frame drawn last (before interpolation), or -1. */
@@ -223,6 +265,14 @@ export class Render3D implements FieldRenderer {
   private readonly discs: InstancedMesh;
   private readonly rings: InstancedMesh;
   private readonly decayRings: InstancedMesh;
+  /** The stamina and capacity bars: their backgrounds and fills, two per player. */
+  private readonly barBacks: InstancedMesh;
+  private readonly barFills: InstancedMesh;
+  /** The players to draw bars for, found while drawing the players, drawn facing the camera. */
+  private barred: PlayerState[] = [];
+  /** Where each player's bars go (the top of their column), by player index. */
+  private readonly barAnchors: World[] = [];
+  private staminaBars: Render3DState['staminaBars'] = [];
   private readonly noses: InstancedMesh;
   private readonly faces: InstancedMesh;
   private readonly noseMaterial: MeshLambertMaterial;
@@ -230,6 +280,13 @@ export class Render3D implements FieldRenderer {
   private readonly numbers: Sprite[] = [];
   /** What each number label says. */
   private readonly numberTexts: string[] = [];
+  /** The width of each number label's text, in meters (at scale 1). */
+  private readonly numberWidths: number[] = [];
+  /** What each number label was drawn with: the font and the text. */
+  private readonly numberKeys: string[] = [];
+  /** How many times their size in meters the labels are drawn (labelScaleFor). */
+  private labelK = 1;
+  private appliedLabelK = 1;
   private readonly overlays = new Overlays();
   private readonly cards: Sprite[] = [];
   private readonly sectors: Mesh[] = [];
@@ -320,6 +377,11 @@ export class Render3D implements FieldRenderer {
       flat(1),
       2,
     );
+    // Over everything, as the numbers.
+    const barMaterial = (color: number, opacity: number) =>
+      this.track(new MeshBasicMaterial({ color, transparent: true, opacity, depthTest: false }));
+    this.barBacks = this.instanced(new PlaneGeometry(1, 1), barMaterial(0x000000, 0.6), 3, 2);
+    this.barFills = this.instanced(new PlaneGeometry(1, 1), barMaterial(0xffffff, 1), 4, 2);
     // Cones along +X: the body direction at the chest, the face direction at the head.
     const cone = (radius: number, length: number) =>
       new ConeGeometry(radius, length, 12).rotateZ(-Math.PI / 2).translate(length / 2, 0, 0);
@@ -348,12 +410,13 @@ export class Render3D implements FieldRenderer {
       sector.visible = false;
       this.numbers.push(number);
       this.numberTexts.push('');
+      this.numberWidths.push(0);
       this.cards.push(card);
       this.sectors.push(sector);
       this.scene.add(number, card, sector);
     }
     this.largeView = new LineSegments(
-      this.track(new BufferGeometry()),
+      new BufferGeometry(),
       this.track(new LineBasicMaterial({ color: 0xffffff })),
     );
     this.largeView.visible = false;
@@ -450,6 +513,7 @@ export class Render3D implements FieldRenderer {
       this.ballPerceived,
     );
     this.updateCamera(frame, view, dt);
+    this.updateBars(view, sp);
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -513,6 +577,7 @@ export class Render3D implements FieldRenderer {
 
   dispose(): void {
     this.detach();
+    this.largeView.geometry.dispose();
     this.stadium.dispose();
     this.overlays.dispose();
     for (const d of this.disposables) {
@@ -613,8 +678,11 @@ export class Render3D implements FieldRenderer {
       ball: at(this.ball),
       shadow: at(this.shadow),
       ...this.counts,
+      staminaBars: this.staminaBars,
       overlays: this.overlays.inspect(),
       labels: this.numbers.map((s, i) => (s.visible ? (this.numberTexts[i] ?? '') : '')),
+      numberPositions: this.numbers.map((s) => (s.visible ? world(s.position) : null)),
+      numberHeight: LABEL_SCALE * this.labelK,
       stadium: {
         ...this.stadium.inspect(),
         nets: this.nets.map((m) => `#${m.color.getHexString()}`),
@@ -744,8 +812,13 @@ export class Render3D implements FieldRenderer {
     return o;
   }
 
-  private instanced(geometry: BufferGeometry, material: Material, renderOrder = 0): InstancedMesh {
-    const mesh = new InstancedMesh(this.track(geometry), material, PLAYERS);
+  private instanced(
+    geometry: BufferGeometry,
+    material: Material,
+    renderOrder = 0,
+    perPlayer = 1,
+  ): InstancedMesh {
+    const mesh = new InstancedMesh(this.track(geometry), material, PLAYERS * perPlayer);
     mesh.frustumCulled = false; // the instances move; the geometry's bounds do not
     mesh.count = 0;
     mesh.renderOrder = renderOrder;
@@ -822,13 +895,19 @@ export class Render3D implements FieldRenderer {
     return sprite;
   }
 
-  /** Writes a number label again when its text changes, and puts the card to its right. */
-  private setNumberText(i: number, text: string): void {
+  /**
+   * Writes a number label again when its text or the player font (the Font
+   * tab's family and weight) changes, and puts the card to its right.
+   */
+  private setNumberText(i: number, text: string, font: FontSpec): void {
     const sprite = this.numbers[i];
     const map = sprite?.material.map;
-    if (!sprite || !map || this.numberTexts[i] === text) {
+    const css = `${font.bold ? 'bold ' : ''}${LABEL_FONT}px ${font.family}`;
+    const key = `${css}|${text}`;
+    if (!sprite || !map || this.numberKeys[i] === key) {
       return;
     }
+    this.numberKeys[i] = key;
     this.numberTexts[i] = text;
     const c = map.image as HTMLCanvasElement;
     const ctx = c.getContext('2d');
@@ -836,7 +915,7 @@ export class Render3D implements FieldRenderer {
       return;
     }
     ctx.clearRect(0, 0, c.width, c.height);
-    ctx.font = 'bold 40px sans-serif';
+    ctx.font = css;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.lineWidth = 6;
@@ -846,6 +925,7 @@ export class Render3D implements FieldRenderer {
     ctx.fillText(text, c.width / 2, 34, c.width - 8);
     map.needsUpdate = true;
     const width = (Math.min(c.width - 8, ctx.measureText(text).width) * LABEL_SCALE) / LABEL_HEIGHT;
+    this.numberWidths[i] = width;
     this.cards[i]?.center.set(-(width / 2 + 0.08) / CARD_WIDTH, 0.5);
   }
 
@@ -879,8 +959,12 @@ export class Render3D implements FieldRenderer {
     for (let i = 0; i < 48; ++i) {
       push((2 * Math.PI * i) / 48, visible, (2 * Math.PI * (i + 1)) / 48, visible);
     }
-    this.largeView.geometry.setAttribute('position', new Float32BufferAttribute(points, 3));
-    this.largeView.geometry.computeBoundingSphere();
+    // A new geometry: a new attribute on the old one would leave its GPU buffer behind.
+    const g = new BufferGeometry();
+    g.setAttribute('position', new Float32BufferAttribute(points, 3));
+    g.computeBoundingSphere();
+    this.largeView.geometry.dispose();
+    this.largeView.geometry = g;
   }
 
   // ---- updating
@@ -941,6 +1025,18 @@ export class Render3D implements FieldRenderer {
     const players: readonly PlayerState[] =
       view.options.showPlayer && frame && store ? frame.players : [];
     const o = this.o;
+    // The labels' size: from the top camera, the 2D player font's on the screen.
+    const k = this.labelScaleFor(view);
+    this.labelK = k;
+    if (k !== this.appliedLabelK) {
+      this.appliedLabelK = k;
+      for (const s of this.numbers) {
+        s.scale.set((LABEL_SCALE * k * LABEL_WIDTH) / LABEL_HEIGHT, LABEL_SCALE * k, 1);
+      }
+      for (const c of this.cards) {
+        c.scale.set(CARD_WIDTH * k, 0.6 * k, 1);
+      }
+    }
     const color = this.color;
     let n = 0;
     let facings = 0;
@@ -949,6 +1045,12 @@ export class Render3D implements FieldRenderer {
     let cards = 0;
     let unknownTeams = 0;
     const drawn: PlayerState[] = [];
+    const barred: PlayerState[] = [];
+    const o2 = view.options;
+    // Others' stamina is not in what the server tells a player.
+    const hasBars = (p: PlayerState, selected: boolean) =>
+      (o2.showStamina || (o2.showStaminaCapacity && capacityRate(p, sp) !== null)) &&
+      (!this.perceptions || selected);
     /** The numbers to draw and their opacity. */
     const numbered = new Map<number, { opacity: number; text: string; illegal: boolean }>();
     const carded = new Set<number>();
@@ -972,6 +1074,8 @@ export class Render3D implements FieldRenderer {
       }
       const size = playerSize(view.options, sp, type);
       const selected = view.isSelected(p.side, p.unum);
+      const barsOver = hasBars(p, selected);
+      const labelHeight = NUMBER_HEIGHT + (barsOver ? BAR_LIFT : 0);
       const style = playerStyle(view.colors, view.options, sp, type, p, selected);
       const teamColor = (c: string) => color.set(c).lerp(this.unknownTeam, 1 - seen.team);
 
@@ -1031,25 +1135,42 @@ export class Render3D implements FieldRenderer {
       }
 
       const text = numberText(p, view.options);
-      if (seen.unum > 0 && text !== '') {
+      const shown = seen.unum > 0 && text !== '';
+      if (shown) {
+        // Now, for its width.
+        this.setNumberText(i, text, view.fonts.player);
+      }
+      const place = this.labelPlace(
+        p,
+        k,
+        size.ground,
+        shown ? (this.numberWidths[i] ?? 0) : 0,
+        labelHeight,
+      );
+      this.barAnchors[i] = place.bars;
+      if (shown) {
         const illegal = view.options.showIllegalDefense && isIllegalDefense(p);
         numbered.set(i, { opacity: seen.unum, text, illegal });
-        this.numbers[i]?.position.set(p.x, NUMBER_HEIGHT, p.y);
+        this.numbers[i]?.position.set(place.number.x, place.number.y, place.number.z);
       }
       const card = this.cards[i];
       if (card && known) {
         const red = hasRedCard(p);
         if (view.options.showCard && (red || hasYellowCard(p))) {
           carded.add(i);
-          card.position.set(p.x, NUMBER_HEIGHT, p.y);
+          card.position.set(place.number.x, place.number.y, place.number.z);
           card.material.color.set(red ? '#ff0000' : '#ffff00');
           ++cards;
         }
+      }
+      if (barsOver) {
+        barred.push(p);
       }
       drawn.push(p);
       ++n;
     }
     this.drawnPlayers = drawn;
+    this.barred = barred;
     const done = (mesh: InstancedMesh, count: number) => {
       mesh.count = count;
       mesh.instanceMatrix.needsUpdate = true;
@@ -1074,7 +1195,7 @@ export class Render3D implements FieldRenderer {
       s.visible = opacity > 0;
       s.material.opacity = opacity;
       if (label) {
-        this.setNumberText(i, label.text);
+        this.setNumberText(i, label.text, view.fonts.player);
         s.material.color.set(label.illegal ? view.colors.illegalDefense : '#ffffff');
       }
       if (s.visible) {
@@ -1095,6 +1216,119 @@ export class Render3D implements FieldRenderer {
       rings,
       cards,
     };
+  }
+
+  /**
+   * Where a player's number label (its center) and its bars (the center of
+   * their column, before going down) are. From the side, above the head.
+   * From above (the top camera), as the 2D view writes the number: to the
+   * right of the circle on the ground (the kickable area, or the Player
+   * Size; `ground` m), the foot of the text at the player's center; the
+   * bars under it, from the same left end.
+   */
+  private labelPlace(
+    p: PlayerState,
+    k: number,
+    ground: number,
+    textWidth: number,
+    height: number,
+  ): { number: World; bars: World } {
+    if (this.mode !== 'top') {
+      const above = { x: p.x, y: height, z: p.y };
+      return { number: above, bars: above };
+    }
+    // The top camera's screen: right is +X, up is -Z.
+    const left = p.x + ground + LABEL_GAP * k;
+    const z = p.y - NUMBER_TEXT_HALF * k;
+    return {
+      number: { x: left + (textWidth * k) / 2, y: height, z },
+      bars: { x: left + (BAR.width / 2 + BAR.frame) * k, y: height, z },
+    };
+  }
+
+  /**
+   * How many times their size in meters the labels (the numbers, the cards
+   * and the stamina bars) are drawn: 1, but from the top camera, so that the
+   * number's text is as high on the screen as the 2D view's player font
+   * (the Font tab), whatever the size of the canvas.
+   */
+  private labelScaleFor(view: ViewState): number {
+    if (this.mode !== 'top') {
+      return 1;
+    }
+    const perMeter = this.height / Math.max(1e-6, this.ortho.top - this.ortho.bottom);
+    const labelHeight = (view.fonts.player.size * LABEL_HEIGHT) / LABEL_FONT / perMeter;
+    return labelHeight / LABEL_SCALE;
+  }
+
+  /**
+   * The stamina bars of the players found by updatePlayers, facing the
+   * camera (after it moved): a dark background, and the fill from the left,
+   * colored by the stamina (staminaHue); the capacity bar below it. They are
+   * under the number as the camera sees it, along the camera's down: from
+   * above (the top camera), a height would put them on the number.
+   */
+  private updateBars(view: ViewState, sp: ServerParam): void {
+    const o = this.o;
+    const q = this.camera.quaternion;
+    const right = new Vector3(1, 0, 0).applyQuaternion(q);
+    const down = new Vector3(0, -1, 0).applyQuaternion(q);
+    const at = new Vector3();
+    const color = this.color;
+    let backs = 0;
+    let fills = 0;
+    const bars: Render3DState['staminaBars'][number][] = [];
+    /** A bar whose top is `from` below the number's center; returns how far below it ends. */
+    // From the top camera, larger with the number (labelScaleFor).
+    const k = this.labelK;
+    const width = BAR.width * k;
+    const frame = BAR.frame * k;
+    const bar = (from: number, height: number, rate: number, fill: Color): number => {
+      o.quaternion.copy(q);
+      o.position.copy(at).addScaledVector(down, from + height / 2);
+      o.scale.set(width + 2 * frame, height + 2 * frame, 1);
+      o.updateMatrix();
+      this.barBacks.setMatrixAt(backs++, o.matrix);
+      if (rate > 0) {
+        // From the left end of the bar.
+        o.position.addScaledVector(right, (-(1 - rate) * width) / 2);
+        o.scale.set(width * rate, height, 1);
+        o.updateMatrix();
+        this.barFills.setMatrixAt(fills, o.matrix);
+        this.barFills.setColorAt(fills, fill);
+        ++fills;
+      }
+      return from + height + BAR.gap * k;
+    };
+    for (const p of this.barred) {
+      const capacity = view.options.showStaminaCapacity ? capacityRate(p, sp) : null;
+      const stamina = view.options.showStamina ? staminaRate(p, sp) : null;
+      // Under the number (updatePlayers placed it).
+      const anchor = this.barAnchors[index(p)] ?? { x: p.x, y: NUMBER_HEIGHT + BAR_LIFT, z: p.y };
+      at.set(anchor.x, anchor.y, anchor.z);
+      let from = (NUMBER_TEXT_HALF + BAR.gap) * k;
+      if (stamina !== null) {
+        const hue = staminaHue(stamina, sp) / 360;
+        from = bar(from, BAR.stamina * k, stamina, color.setHSL(hue, 0.85, 0.5));
+      }
+      if (capacity !== null) {
+        bar(from, BAR.capacity * k, capacity, color.set(CAPACITY_COLOR));
+      }
+      // The first bar's center, for the tests.
+      const center = at.clone().addScaledVector(down, (NUMBER_TEXT_HALF + BAR.gap + 0.05) * k);
+      bars.push({ side: p.side, unum: p.unum, stamina, capacity, at: world(center) });
+    }
+    for (const [mesh, count] of [
+      [this.barBacks, backs],
+      [this.barFills, fills],
+    ] as const) {
+      mesh.count = count;
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) {
+        mesh.instanceColor.needsUpdate = true;
+      }
+    }
+    this.staminaBars = bars;
   }
 
   /** The view areas (V): every player's within the visible distance, the selected player's to 60 m. */

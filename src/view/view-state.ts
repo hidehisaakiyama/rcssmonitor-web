@@ -125,6 +125,25 @@ export class ViewState {
     this.changed();
   }
 
+  /**
+   * The S key (rcssmonitor ConfigDialog::toggleShowStamina): neither, the
+   * stamina, the stamina capacity, both, and neither again.
+   */
+  cycleStamina(): void {
+    const o = this.options;
+    const next: Record<string, [boolean, boolean]> = {
+      'false,false': [true, false],
+      'true,false': [false, true],
+      'false,true': [true, true],
+      'true,true': [false, false],
+    };
+    [o.showStamina, o.showStaminaCapacity] = next[`${o.showStamina},${o.showStaminaCapacity}`] ?? [
+      false,
+      false,
+    ];
+    this.changed();
+  }
+
   set<K extends keyof ViewOptions>(name: K, value: ViewOptions[K]): void {
     this.options[name] = value;
     this.changed();

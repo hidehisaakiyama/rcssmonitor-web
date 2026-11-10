@@ -199,3 +199,27 @@ function parseRgb(color: string): [number, number, number] | null {
   const m = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/.exec(s);
   return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
 }
+
+const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
+
+/** The stamina left, of stamina_max (0-1): the length of the stamina bar. */
+export function staminaRate(player: PlayerState, sp: ServerParam): number {
+  return sp.stamina_max > 0 ? clamp01(player.stamina / sp.stamina_max) : 0;
+}
+
+/** The stamina capacity left, of stamina_capacity (0-1); null without one (text v4 logs). */
+export function capacityRate(player: PlayerState, sp: ServerParam): number | null {
+  return player.capacity === undefined || sp.stamina_capacity <= 0
+    ? null
+    : clamp01(player.capacity / sp.stamina_capacity);
+}
+
+/**
+ * The hue of the stamina bar (degrees): red at or below the stamina where
+ * the recovery or the effort starts to fall (recover_dec_thr,
+ * effort_dec_thr of stamina_max), to green when full.
+ */
+export function staminaHue(rate: number, sp: ServerParam): number {
+  const threshold = Math.max(sp.recover_dec_thr, sp.effort_dec_thr);
+  return threshold >= 1 ? 0 : 120 * clamp01((rate - threshold) / (1 - threshold));
+}

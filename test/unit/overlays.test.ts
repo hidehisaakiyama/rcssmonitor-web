@@ -12,6 +12,7 @@ import {
   tackleText,
 } from '../../src/view/overlay-math';
 import { Overlays } from '../../src/view/render3d/overlays';
+import { capacityRate, staminaHue, staminaRate } from '../../src/view/render3d/scene-math';
 import { ViewState } from '../../src/view/view-state';
 
 const sp = DEFAULT_SERVER_PARAM;
@@ -212,5 +213,21 @@ describe('the 3D overlays', () => {
       labels: [],
     });
     o.dispose();
+  });
+});
+
+describe('the stamina bars', () => {
+  it('are as long as the stamina and the capacity left, red where recovery falls', () => {
+    const p = alive(0, { stamina: 6000, capacity: 65300 });
+    expect(staminaRate(p, sp)).toBeCloseTo(6000 / sp.stamina_max);
+    expect(staminaRate(alive(0, { stamina: 9000 }), sp)).toBe(1);
+    expect(capacityRate(p, sp)).toBeCloseTo(65300 / sp.stamina_capacity);
+    expect(capacityRate(alive(0), sp)).toBeNull(); // text v4 logs
+    expect(capacityRate(p, { ...sp, stamina_capacity: -1 })).toBeNull();
+    // Red at or below recover_dec_thr / effort_dec_thr (0.3), green when full.
+    expect(staminaHue(0.2, sp)).toBe(0);
+    expect(staminaHue(0.3, sp)).toBe(0);
+    expect(staminaHue(0.65, sp)).toBeCloseTo(60);
+    expect(staminaHue(1, sp)).toBe(120);
   });
 });

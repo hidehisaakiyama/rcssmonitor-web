@@ -2,10 +2,11 @@
 // as the 2D view draws them (overlay-math.ts; the Show tab's options):
 // the focus point and the kick acceleration area of the selected player,
 // the goalies' catch areas, the tackle areas, the pointto lines, the
-// offside lines and the ball's path. Not the stamina (the user's choice).
+// offside lines and the ball's path. The stamina bars are in render3d.ts.
 //
 // All the lines are one LineSegments (one draw call), the dotted ones
-// another, and the ball's path points a Points. Their texts (the tackle and
+// another, and the ball's path points a Points, written every frame into
+// buffers that are kept (Vertices). Their texts (the tackle and
 // foul chances, the largest kick acceleration) are labels that the HUD
 // writes in the player font, as the 2D view does.
 //
@@ -13,9 +14,10 @@
 // player perceives have overlays, and the ball's path only when it sees the
 // ball. The offside lines are the game's, whatever the sight.
 import {
+  BufferAttribute,
   BufferGeometry,
   Color,
-  Float32BufferAttribute,
+  DynamicDrawUsage,
   Group,
   LineBasicMaterial,
   LineDashedMaterial,
@@ -68,14 +70,74 @@ export interface OverlayState {
   readonly labels: readonly string[];
 }
 
-/** Line segments built anew every frame. */
+/**
+ * Vertices written every frame into buffers that are kept: a new attribute
+ * every frame would leave its GPU buffer behind, as three.js frees the
+ * buffers of the attributes a geometry has when it is disposed. When a frame
+ * needs more, a geometry twice as large replaces it (the old one disposed).
+ */
+class Vertices {
+  geometry = new BufferGeometry();
+  private capacity = 0;
+
+  constructor(
+    private readonly names: readonly (readonly [string, number])[],
+    initial = 1024,
+  ) {
+    this.allocate(initial);
+  }
+
+  /** Writes the vertices (by attribute name) and returns the geometry to draw, which may be new. */
+  write(data: Readonly<Record<string, readonly number[]>>, count: number): BufferGeometry {
+    if (count > this.capacity) {
+      this.allocate(Math.max(count, this.capacity * 2));
+    }
+    const g = this.geometry;
+    if (count > 0) {
+      for (const [name, size] of this.names) {
+        const a = g.getAttribute(name) as BufferAttribute;
+        (a.array as Float32Array).set(data[name] ?? [], 0);
+        a.clearUpdateRanges();
+        a.addUpdateRange(0, count * size);
+        a.needsUpdate = true;
+      }
+    }
+    g.setDrawRange(0, count);
+    return g;
+  }
+
+  dispose(): void {
+    this.geometry.dispose();
+  }
+
+  private allocate(capacity: number): void {
+    this.geometry.dispose();
+    const g = new BufferGeometry();
+    for (const [name, size] of this.names) {
+      const a = new BufferAttribute(new Float32Array(capacity * size), size);
+      g.setAttribute(name, a.setUsage(DynamicDrawUsage));
+    }
+    this.geometry = g;
+    this.capacity = capacity;
+  }
+}
+
+/** Line segments built every frame; dashed ones with their distances along the line. */
 class Segments {
   readonly object: LineSegments;
+  private readonly vertices: Vertices;
+  private readonly dashed: boolean;
   private positions: number[] = [];
   private colors: number[] = [];
 
   constructor(material: LineBasicMaterial) {
-    this.object = new LineSegments(new BufferGeometry(), material);
+    this.dashed = material instanceof LineDashedMaterial;
+    this.vertices = new Vertices([
+      ['position', 3],
+      ['color', 3],
+      ...(this.dashed ? [['lineDistance', 1] as const] : []),
+    ]);
+    this.object = new LineSegments(this.vertices.geometry, material);
     this.object.frustumCulled = false; // the geometry changes every frame
     this.object.renderOrder = 2;
   }
@@ -101,22 +163,31 @@ class Segments {
     }
   }
 
-  get count(): number {
-    return this.positions.length / 6;
-  }
-
   flush(): void {
-    const g = this.object.geometry;
-    g.setAttribute('position', new Float32BufferAttribute(this.positions, 3));
-    g.setAttribute('color', new Float32BufferAttribute(this.colors, 3));
-    if (this.object.material instanceof LineDashedMaterial) {
-      this.object.computeLineDistances();
+    const count = this.positions.length / 3;
+    const data: Record<string, number[]> = { position: this.positions, color: this.colors };
+    if (this.dashed) {
+      // As LineSegments.computeLineDistances: along each segment, on from the last.
+      const p = this.positions;
+      const d: number[] = [];
+      for (let i = 0; i < count; i += 2) {
+        const from = i === 0 ? 0 : (d[i - 1] ?? 0);
+        const k = i * 3;
+        const length = Math.hypot(
+          (p[k + 3] ?? 0) - (p[k] ?? 0),
+          (p[k + 4] ?? 0) - (p[k + 1] ?? 0),
+          (p[k + 5] ?? 0) - (p[k + 2] ?? 0),
+        );
+        d.push(from, from + length);
+      }
+      data['lineDistance'] = d;
     }
-    this.object.visible = this.positions.length > 0;
+    this.object.geometry = this.vertices.write(data, count);
+    this.object.visible = count > 0;
   }
 
   dispose(): void {
-    this.object.geometry.dispose();
+    this.vertices.dispose();
   }
 }
 
@@ -134,7 +205,11 @@ export class Overlays {
   };
   private readonly solid = new Segments(this.materials.solid);
   private readonly dotted = new Segments(this.materials.dotted);
-  private readonly dots = new Points(new BufferGeometry(), this.materials.points);
+  private readonly dotVertices = new Vertices([
+    ['position', 3],
+    ['color', 3],
+  ]);
+  private readonly dots = new Points(this.dotVertices.geometry, this.materials.points);
   private readonly color = new Color();
   private labelList: OverlayLabel[] = [];
   private state: OverlayState = {
@@ -261,8 +336,10 @@ export class Overlays {
     for (let i = 0; i < dots.length / 3; ++i) {
       colorList.push(c.r, c.g, c.b);
     }
-    this.dots.geometry.setAttribute('position', new Float32BufferAttribute(dots, 3));
-    this.dots.geometry.setAttribute('color', new Float32BufferAttribute(colorList, 3));
+    this.dots.geometry = this.dotVertices.write(
+      { position: dots, color: colorList },
+      dots.length / 3,
+    );
     this.dots.visible = dots.length > 0;
     this.state = { ...counts, labels: this.labelList.map((l) => l.text) };
   }
@@ -270,7 +347,7 @@ export class Overlays {
   dispose(): void {
     this.solid.dispose();
     this.dotted.dispose();
-    this.dots.geometry.dispose();
+    this.dotVertices.dispose();
     for (const m of Object.values(this.materials)) {
       m.dispose();
     }
