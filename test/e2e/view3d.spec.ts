@@ -754,10 +754,13 @@ test('aims a right click at the player under it, or at the ground near the pitch
 });
 
 test('sends the referee commands aimed in 3D', async ({ page }) => {
+  // Over and over: without, the server closes the connection at the end of
+  // the log (267 frames, 5 s), which a slow run (the CI) may pass.
   const server = await ReplayServer.fromFile(fixture('json-sample.rcg.gz'), {
     host: '127.0.0.1',
     interval: 20,
     coach: true,
+    loop: true,
   });
   try {
     const port = await server.listen();
