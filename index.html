@@ -16,6 +16,7 @@
         --pressed: #cfe3ff;
         --accent: #0a66d8;
         --error: #c62828;
+        --error-bg: #fde3e3;
         --ok: #2e7d32;
         --field: #1fa01f;
       }
@@ -31,6 +32,7 @@
           --pressed: #23406b;
           --accent: #5ea2ff;
           --error: #ff6b6b;
+          --error-bg: #5a2224;
           --ok: #66bb6a;
         }
       }
@@ -396,6 +398,16 @@
         text-underline-offset: 3px;
         cursor: help;
       }
+      .config-label.disabled,
+      .config-number:disabled {
+        opacity: 0.45;
+      }
+      .config-choice > .config-label {
+        min-width: 7em;
+      }
+      .config-hint.indented {
+        padding-left: calc(7em + 8px);
+      }
       .config-check {
         display: inline-flex;
         align-items: center;
@@ -417,6 +429,7 @@
       }
       .config-number.invalid {
         border-color: var(--error);
+        background: var(--error-bg);
       }
       .config-slider {
         flex: 1;

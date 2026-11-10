@@ -104,8 +104,8 @@ export function playerCameraOptions(app: AppSettings): PlayerCameraOptions {
   };
 }
 
-/** The settings of the preference dialog's 3D tab. */
-const VIEW_3D_TAB_KEYS = [
+/** The settings of the preference dialog's Player Camera tab. */
+const PLAYER_CAMERA_KEYS = [
   'playerCameraPosition',
   'playerCameraDirection',
   'playerCameraMotion',
@@ -114,17 +114,30 @@ const VIEW_3D_TAB_KEYS = [
   'playerCameraTimeConstant',
   'playerCameraMaxTurn',
   'playerCameraFixedFov',
+] as const satisfies readonly (keyof AppSettings)[];
+
+/** The settings of its 3D tab. */
+const VIEW_3D_KEYS = [
   'compass3d',
   'minimap3d',
   'boards3d',
   'banners3d',
 ] as const satisfies readonly (keyof AppSettings)[];
 
-/** The 3D tab's settings (the player camera, the guides, the boards and banners) back to the defaults. */
-export function resetView3dTab(app: AppSettings): void {
-  for (const key of VIEW_3D_TAB_KEYS) {
+function reset(app: AppSettings, keys: readonly (keyof AppSettings)[]): void {
+  for (const key of keys) {
     Object.assign(app, { [key]: DEFAULT_APP_SETTINGS[key] });
   }
+}
+
+/** The player camera's styles and sight back to the defaults. */
+export function resetPlayerCamera(app: AppSettings): void {
+  reset(app, PLAYER_CAMERA_KEYS);
+}
+
+/** The compass, the minimap, the boards and the banners back to the defaults. */
+export function resetView3d(app: AppSettings): void {
+  reset(app, VIEW_3D_KEYS);
 }
 
 /** What the settings apply to. */

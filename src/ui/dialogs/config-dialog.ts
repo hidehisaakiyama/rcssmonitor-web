@@ -1,7 +1,7 @@
 // The view configuration (rcssmonitor src/config_dialog.cpp) with the same
-// tabs: Show, Canvas, Color and Font, and a 3D tab for the selected player's
-// camera of the 3D view, the compass, the minimap, the boards and the
-// banners (not in rcssmonitor; each item has a tooltip and a note). Changes
+// tabs: Show, Canvas, Color and Font, and two tabs for the 3D view (not in
+// rcssmonitor): 3D (the compass, the minimap, the boards and the banners) and
+// Player Camera (the selected player's camera and what it draws). Changes
 // apply at once. The controls follow the view while open, e.g. when a key
 // toggles an option.
 //
@@ -13,7 +13,8 @@ import {
   DEFAULT_APP_SETTINGS,
   pixelsToPoints,
   pointsToPixels,
-  resetView3dTab,
+  resetPlayerCamera,
+  resetView3d,
   type AppSettings,
 } from '../../options/settings';
 import { DEFAULT_FONTS, DEFAULT_PALETTE, type Fonts, type Palette } from '../../view/palette';
@@ -34,7 +35,7 @@ export interface ConfigHost {
   readonly app: AppSettings;
   /** Applies app.canvasWidth / canvasHeight. */
   applyCanvasSize(): void;
-  /** Applies the 3D tab's settings (app.playerCamera..., compass3d, minimap3d, boards3d, banners3d). */
+  /** Applies the settings of the 3D and Player Camera tabs (app.playerCamera..., compass3d, ...). */
   applyView3d(): void;
 }
 
@@ -120,8 +121,8 @@ const FAMILIES = [
 ];
 
 type Refresh = () => void;
-/** A radio choice: [setting value, label, tooltip]. */
-type Choice<T extends string> = readonly [T, string, string?];
+/** A radio choice: [setting value, label, summary, tooltip (by default the summary)]. */
+type Choice<T extends string> = readonly [T, string, string?, string?];
 
 export class ConfigDialog {
   readonly panel: Panel;
@@ -167,6 +168,7 @@ export class ConfigDialog {
       ['Color', this.colorTab()],
       ['Font', this.fontTab()],
       ['3D', this.view3dTab()],
+      ['Player Camera', this.playerCameraTab()],
     ];
     const bar = el('div', 'tab-bar');
     bar.setAttribute('role', 'tablist');
@@ -181,7 +183,7 @@ export class ConfigDialog {
     tabs.forEach(([name, page], i) => {
       const b = el('button', 'tab', name);
       b.type = 'button';
-      b.id = `config-tab-${name.toLowerCase()}`;
+      b.id = `config-tab-${name.toLowerCase().replace(/ /g, '-')}`;
       b.setAttribute('role', 'tab');
       b.setAttribute('aria-controls', `${b.id}-page`);
       b.addEventListener('click', () => select(i));
@@ -229,7 +231,7 @@ export class ConfigDialog {
     return wrap;
   }
 
-  /** Radio buttons for [value, label, tooltip] choices. */
+  /** Radio buttons for choices, with their tooltips. */
   private radio<T extends string>(
     name: string,
     choices: readonly Choice<T>[],
@@ -237,8 +239,9 @@ export class ConfigDialog {
     set: (v: T) => void,
   ): HTMLElement {
     const r = this.row();
-    for (const [value, label, tooltip] of choices) {
+    for (const [value, label, summary, details] of choices) {
       const wrap = el('label', 'config-check');
+      const tooltip = details ?? summary;
       if (tooltip) {
         wrap.title = tooltip;
       }
@@ -261,12 +264,19 @@ export class ConfigDialog {
     return r;
   }
 
-  /** A number field applied on change (Enter or leaving it); refreshed unless focused. */
+  /**
+   * A number field applied on change (Enter or leaving it); refreshed unless
+   * focused. While a value out of the range (or not a number) is typed, it
+   * shows the error color. On change, with `clamp` the value is brought into
+   * the range and applied (what is not a number goes back to the setting);
+   * otherwise a value out of the range is not applied and keeps the color.
+   */
   private number(
     id: string,
     get: () => number,
     set: (v: number) => void,
     range: { min: number; max: number; step: number },
+    clamp = false,
   ): HTMLInputElement {
     const input = el('input', 'config-number');
     Object.assign(input, {
@@ -276,9 +286,25 @@ export class ConfigDialog {
       max: String(range.max),
       step: String(range.step),
     });
-    input.addEventListener('change', () => {
+    const value = () => {
       const v = Number(input.value);
-      if (input.value !== '' && Number.isFinite(v) && v >= range.min && v <= range.max) {
+      return input.value !== '' && Number.isFinite(v) ? v : null;
+    };
+    const inRange = (v: number) => v >= range.min && v <= range.max;
+    input.addEventListener('input', () => {
+      const v = value();
+      input.classList.toggle('invalid', input.validity.badInput || (v !== null && !inRange(v)));
+    });
+    input.addEventListener('change', () => {
+      const v = value();
+      if (clamp) {
+        const c = v === null ? get() : Math.min(range.max, Math.max(range.min, v));
+        input.value = String(round(c));
+        input.classList.remove('invalid');
+        if (v !== null) {
+          set(c);
+        }
+      } else if (v !== null && inRange(v)) {
         input.classList.remove('invalid');
         set(v);
       } else {
@@ -633,89 +659,188 @@ export class ConfigDialog {
     return page;
   }
 
-  // ---- 3D
+  // ---- 3D and Player Camera
+  //
+  // Every item has a tooltip with the details; below a row of choices, a line
+  // sums up the chosen one. The numbers the chosen styles do not use are dim.
+
+  private note(text: string): HTMLElement {
+    return el('p', 'panel-note config-hint', text);
+  }
+
+  private label(text: string, tooltip: string): HTMLLabelElement {
+    const l = el('label', 'config-label', text);
+    l.title = tooltip;
+    return l;
+  }
 
   /**
-   * The selected player's camera of the 3D view, in the styles to compare,
-   * and the compass and the minimap. Every item has a tooltip, and the chosen
-   * style is described below its row.
+   * A row of choices (radio buttons `${id}-${value}`) after `label`, and
+   * unless `summary` is false, the chosen one's summary below it.
    */
+  private choice<T extends string>(
+    id: string,
+    label: string,
+    tooltip: string,
+    choices: readonly Choice<T>[],
+    get: () => T,
+    set: (v: T) => void,
+    summary = true,
+  ): HTMLElement[] {
+    const row = this.radio(id, choices, get, (v) => {
+      set(v);
+      this.host.applyView3d();
+      this.refresh();
+    });
+    row.classList.add('config-choice');
+    if (label) {
+      row.prepend(this.label(label, tooltip));
+    }
+    if (!summary) {
+      return [row];
+    }
+    const hint = this.note('');
+    hint.id = `${id}-hint`;
+    hint.classList.toggle('indented', label !== '');
+    this.refreshers.push(() => {
+      hint.textContent = choices.find(([v]) => v === get())?.[2] ?? '';
+    });
+    return [row, hint];
+  }
+
+  private check3d(
+    id: string,
+    label: string,
+    tooltip: string,
+    get: () => boolean,
+    set: (on: boolean) => void,
+  ): HTMLElement {
+    const c = this.checkbox(id, label, get, (on) => {
+      set(on);
+      this.host.applyView3d();
+    });
+    c.title = tooltip;
+    return c;
+  }
+
+  /**
+   * A number field after its label, dim while the chosen styles do not use
+   * it. A value out of the range is brought into it; the tooltip tells the
+   * range, in `unit`.
+   */
+  private number3d(
+    id: string,
+    label: string,
+    tooltip: string,
+    get: () => number,
+    set: (v: number) => void,
+    range: { min: number; max: number; step: number; unit: string },
+    used: () => boolean,
+  ): HTMLElement[] {
+    const input = this.number(
+      id,
+      get,
+      (v) => {
+        set(v);
+        this.host.applyView3d();
+      },
+      range,
+      true,
+    );
+    const details =
+      `${tooltip} Range: ${range.min}–${range.max}${range.unit}; ` +
+      'a value outside it is brought to the nearest end.';
+    input.title = details;
+    const l = this.label(label, details);
+    l.htmlFor = input.id;
+    this.refreshers.push(() => {
+      input.disabled = !used();
+      l.classList.toggle('disabled', input.disabled);
+    });
+    return [l, input];
+  }
+
+  /** The compass and the minimap, the boards and the banners, for every camera of the 3D view. */
   private view3dTab(): HTMLElement {
     const page = el('div');
     const app = this.host.app;
-    const apply = () => this.host.applyView3d();
-    const note = (text: string) => el('p', 'panel-note config-hint', text);
-    const name = (label: string, tooltip: string) => {
-      const l = el('label', 'config-label', label);
-      l.title = tooltip;
-      return l;
-    };
-    /** A row of choices (radio buttons `${id}-${value}`), with the chosen one's description below it. */
-    const choice = <T extends string>(
-      id: string,
-      label: string,
-      tooltip: string,
-      choices: readonly Choice<T>[],
-      get: () => T,
-      set: (v: T) => void,
-    ): HTMLElement[] => {
-      const hint = note('');
-      hint.id = `${id}-hint`;
-      const describe = () => {
-        hint.textContent = choices.find(([v]) => v === get())?.[2] ?? '';
-      };
-      this.refreshers.push(describe);
-      const row = this.radio(id, choices, get, (v) => {
-        set(v);
-        apply();
-        describe();
-      });
-      if (label) {
-        row.prepend(name(label, tooltip));
-      }
-      return [row, hint];
-    };
-    const check = (
-      id: string,
-      label: string,
-      tooltip: string,
-      get: () => boolean,
-      set: (on: boolean) => void,
-    ) => {
-      const c = this.checkbox(id, label, get, (on) => {
-        set(on);
-        apply();
-      });
-      c.title = tooltip;
-      return c;
-    };
-    const number = (
-      item: string,
-      label: string,
-      tooltip: string,
-      get: () => number,
-      set: (v: number) => void,
-      range: { min: number; max: number; step: number },
-    ): HTMLElement[] => {
-      const input = this.number(
-        `config-player-camera-${item}`,
-        get,
-        (v) => {
-          set(v);
-          apply();
-        },
-        range,
-      );
-      input.title = tooltip;
-      const l = name(label, tooltip);
-      l.htmlFor = input.id;
-      return [l, input];
-    };
     page.append(
       this.group(
-        'Player Camera',
-        note(CAMERA_NOTE),
-        ...choice(
+        'Guides',
+        ...this.choice(
+          'config-compass-3d',
+          'Compass:',
+          COMPASS_TOOLTIP,
+          GUIDES,
+          () => app.compass3d,
+          (v) => {
+            app.compass3d = v;
+          },
+          false,
+        ),
+        ...this.choice(
+          'config-minimap-3d',
+          'Minimap:',
+          MINIMAP_TOOLTIP,
+          GUIDES,
+          () => app.minimap3d,
+          (v) => {
+            app.minimap3d = v;
+          },
+          false,
+        ),
+        this.note(GUIDES_NOTE),
+      ),
+      this.group(
+        'Stadium',
+        this.row(
+          this.check3d(
+            'config-boards-3d',
+            'Boards',
+            BOARDS_TOOLTIP,
+            () => app.boards3d,
+            (on) => {
+              app.boards3d = on;
+            },
+          ),
+          this.check3d(
+            'config-banners-3d',
+            'Banners',
+            BANNERS_TOOLTIP,
+            () => app.banners3d,
+            (on) => {
+              app.banners3d = on;
+            },
+          ),
+        ),
+        this.note(STADIUM_NOTE),
+      ),
+      this.row(
+        this.button(
+          'Default',
+          'config-3d-default',
+          () => {
+            resetView3d(app);
+            this.host.applyView3d();
+            this.refresh();
+          },
+          `Set the defaults: ${defaultView3d()}`,
+        ),
+      ),
+    );
+    return page;
+  }
+
+  /** The selected player's camera of the 3D view, in the styles to compare, and what it draws. */
+  private playerCameraTab(): HTMLElement {
+    const page = el('div');
+    const app = this.host.app;
+    const smooth = () => app.playerCameraMotion === 'smooth';
+    page.append(
+      this.note(PLAYER_CAMERA_NOTE),
+      this.group(
+        'Camera',
+        ...this.choice(
           'config-player-camera-position',
           'Position:',
           'Where the camera is, along the camera direction',
@@ -725,7 +850,7 @@ export class ConfigDialog {
             app.playerCameraPosition = v;
           },
         ),
-        ...choice(
+        ...this.choice(
           'config-player-camera-direction',
           'Direction:',
           'The goal direction that the camera turns to',
@@ -735,7 +860,7 @@ export class ConfigDialog {
             app.playerCameraDirection = v;
           },
         ),
-        ...choice(
+        ...this.choice(
           'config-player-camera-motion',
           'Motion:',
           'How the camera turns to the goal direction',
@@ -745,7 +870,7 @@ export class ConfigDialog {
             app.playerCameraMotion = v;
           },
         ),
-        ...choice(
+        ...this.choice(
           'config-player-camera-fov',
           'Field of View:',
           'The horizontal field of view h. The vertical one follows the shape of the canvas: ' +
@@ -757,47 +882,48 @@ export class ConfigDialog {
           },
         ),
         this.row(
-          ...number(
-            'time-constant',
+          ...this.number3d(
+            'config-player-camera-time-constant',
             'Time Constant τ (s):',
             'τ of Smooth and Eased: after τ seconds, about 37% (1/e) of the difference is left ' +
               '(while Smooth turns slower than ω). With 0, Smooth turns at ω only and Eased ' +
-              'follows at once.',
+              'follows at once. It applies with Enter or on leaving the field.',
             () => app.playerCameraTimeConstant,
             (v) => {
               app.playerCameraTimeConstant = v;
             },
-            { min: 0, max: 5, step: 0.05 },
+            { min: 0, max: 5, step: 0.05, unit: ' s' },
+            () => smooth() || app.playerCameraFov === 'eased',
           ),
-          ...number(
-            'max-turn',
+          ...this.number3d(
+            'config-player-camera-max-turn',
             'Max Turn ω (°/s):',
             'ω of Smooth: the fastest the camera turns, in degrees per second.',
             () => app.playerCameraMaxTurn,
             (v) => {
               app.playerCameraMaxTurn = v;
             },
-            { min: 1, max: 3600, step: 1 },
+            { min: 1, max: 3600, step: 1, unit: '°/s' },
+            smooth,
           ),
         ),
         this.row(
-          ...number(
-            'fixed-fov',
+          ...this.number3d(
+            'config-player-camera-fixed-fov',
             'Fixed Field of View (°):',
             'The horizontal field of view of Fixed, in degrees.',
             () => app.playerCameraFixedFov,
             (v) => {
               app.playerCameraFixedFov = v;
             },
-            { min: 20, max: 120, step: 1 },
+            { min: 20, max: 120, step: 1, unit: '°' },
+            () => app.playerCameraFov === 'fixed',
           ),
         ),
-        note(NUMBERS_NOTE),
-        note(SNAP_NOTE),
       ),
       this.group(
         'Player Sight',
-        ...choice(
+        ...this.choice(
           'config-player-camera-sight',
           '',
           '',
@@ -807,66 +933,18 @@ export class ConfigDialog {
             app.playerCameraSight = v;
           },
         ),
-        note(SIGHT_NOTE),
-      ),
-      this.group(
-        'Guides',
-        ...choice(
-          'config-compass-3d',
-          'Compass:',
-          COMPASS_TOOLTIP,
-          GUIDES,
-          () => app.compass3d,
-          (v) => {
-            app.compass3d = v;
-          },
-        ),
-        ...choice(
-          'config-minimap-3d',
-          'Minimap:',
-          MINIMAP_TOOLTIP,
-          GUIDES,
-          () => app.minimap3d,
-          (v) => {
-            app.minimap3d = v;
-          },
-        ),
-        note(GUIDES_NOTE),
-      ),
-      this.group(
-        'Stadium',
-        this.row(
-          check(
-            'config-boards-3d',
-            'Boards',
-            BOARDS_TOOLTIP,
-            () => app.boards3d,
-            (on) => {
-              app.boards3d = on;
-            },
-          ),
-          check(
-            'config-banners-3d',
-            'Banners',
-            BANNERS_TOOLTIP,
-            () => app.banners3d,
-            (on) => {
-              app.banners3d = on;
-            },
-          ),
-        ),
-        note(STADIUM_NOTE),
+        this.note(SIGHT_NOTE),
       ),
       this.row(
         this.button(
           'Default',
           'config-player-camera-default',
           () => {
-            resetView3dTab(app);
-            apply();
+            resetPlayerCamera(app);
+            this.host.applyView3d();
             this.refresh();
           },
-          `Set the defaults of this tab: ${default3dTab()}`,
+          `Set the default player camera: ${defaultPlayerCamera()}`,
         ),
       ),
     );
@@ -947,75 +1025,93 @@ export class ConfigDialog {
   }
 }
 
-// The player camera's choices and notes. The descriptions are the tooltips and,
-// for the chosen one, the note below the row (render3d/player-camera.ts and
-// sight.ts compute them).
+// The choices and notes of the 3D and Player Camera tabs: [value, label, the
+// summary below the row, the tooltip (by default the summary)]. The details
+// are in the tooltips (render3d/player-camera.ts and sight.ts compute them).
 const POSITIONS: Choice<AppSettings['playerCameraPosition']>[] = [
   [
     'eye',
     'Eyes',
+    'At the eyes, 1.65 m high; the player itself is not drawn.',
     'At the eyes, 1.65 m high, looking at the point 10 m ahead and 1 m high. ' +
       'The player itself is not drawn.',
   ],
   [
     'shoulder',
     'Over the Shoulder',
+    '6 m behind the player and 3 m high.',
     '6 m behind the player and 3 m high, looking at the point 15 m ahead and 1 m high.',
   ],
 ];
 const DIRECTIONS: Choice<AppSettings['playerCameraDirection']>[] = [
   [
     'head',
-    'Head (Body + Neck)',
+    'Head',
+    'The face direction: body + neck.',
     'The goal is the face direction, body + neck: the center of the view cone.',
   ],
-  ['body', 'Body', 'The goal is the body direction: the camera does not follow the neck.'],
+  [
+    'body',
+    'Body',
+    'The body direction: not the neck.',
+    'The goal is the body direction: the camera does not follow the neck.',
+  ],
   [
     'middle',
-    'Between (Body + Neck / 2)',
+    'Between',
+    'Halfway: body + neck / 2.',
     'The goal is halfway between the body and the face: body + neck / 2.',
   ],
 ];
 const MOTIONS: Choice<AppSettings['playerCameraMotion']>[] = [
-  ['instant', 'Instant', 'The camera takes the goal direction at every frame.'],
+  ['instant', 'Instant', 'The goal direction at every frame.'],
   [
     'smooth',
     'Smooth',
+    'Turns by e·(1 − exp(−Δt / τ)) a frame, at most ω·Δt.',
     'Each frame, the camera turns by e·(1 − exp(−Δt / τ)), but at most ω·Δt: e is the angle ' +
       'left to the goal and Δt the time since the last frame (up to 0.1 s). So it turns at ω ' +
-      'while e is over about ω·τ, and then slows down.',
+      'while e is over about ω·τ, and then slows down. It takes the goal at once when another ' +
+      'player is selected, the player moves over 3 m in a frame (e.g. by a move), or the 3D ' +
+      'camera or an option here changes.',
   ],
 ];
 const FOVS: Choice<AppSettings['playerCameraFov']>[] = [
   [
     'view',
     'View Width',
+    "The player's view width, within 40°–120°.",
     "The player's view width, within 40°–120°: the wide 180° is shown as 120°, " +
       'an unknown width as 90°.',
   ],
   [
     'eased',
-    'Eased to the View Width',
+    'Eased',
+    'Toward the view width, by (1 − exp(−Δt / τ)) a frame.',
     'Each frame, the field of view moves (1 − exp(−Δt / τ)) of the way to the view width ' +
       '(as View Width; not limited by ω).',
   ],
-  ['fixed', 'Fixed', 'Always Fixed Field of View below, whatever the view width.'],
+  ['fixed', 'Fixed', 'Always Fixed Field of View, whatever the view width.'],
 ];
 const SIGHTS: Choice<AppSettings['playerCameraSight']>[] = [
   [
     'all',
     'Everything',
+    'Everything, as the other cameras draw it.',
     'Everything, as the other cameras draw it (the players not connected in black).',
   ],
   [
     'view',
     'View Cone',
+    'Only the players and the ball in the view cone.',
     'Only the players and the ball in the view cone, at any distance: ' +
       '|the angle from the face direction| < the view width / 2.',
   ],
   [
     'server',
     'Server Rules',
+    'As rcssserver tells the player: the numbers fade out from 20 m to 40 m, and those ' +
+      'within 3 m out of the view are gray.',
     'As rcssserver tells the player. In the cone, the players up to ' +
       'player_max_observation_length (by default the diagonal of the pitch): the number has ' +
       'the opacity 1 − (d − unum_far_length) / (unum_too_far_length − unum_far_length) ' +
@@ -1023,32 +1119,20 @@ const SIGHTS: Choice<AppSettings['playerCameraSight']>[] = [
       'marks and the view area are not drawn. The team colors fade to gray in the same way ' +
       'by team_far_length and team_too_far_length. Outside the cone, the players within ' +
       'visible_distance (3 m) are drawn in gray only. The ball is drawn in the cone up to ' +
-      'ball_max_observation_length, or within visible_distance.',
+      'ball_max_observation_length, or within visible_distance. Unlike the server, the true ' +
+      'distance is used every cycle, and the chances show as opacity and gray.',
   ],
 ];
-
-const CAMERA_NOTE =
-  "The 3D view's Player camera, at the selected player. Each frame, Direction gives the " +
-  'goal, Motion turns the camera toward it, Field of View sets the width, and Position ' +
-  'places the camera by the turned direction. Point at an item for more.';
-const NUMBERS_NOTE =
-  'τ is for Smooth and Eased, ω for Smooth, and Fixed Field of View for Fixed. ' +
-  'A number applies with Enter or on leaving the field.';
-const SNAP_NOTE =
-  'The camera takes the goal at once, without Smooth or Eased, when another player is ' +
-  'selected, the player moves over 3 m in a frame (e.g. by a move), the 3D camera ' +
-  'changes or an option here changes.';
-const SIGHT_NOTE =
-  'Only for the Player camera with a connected player selected. Decided by the face ' +
-  "direction and the view width in the log at the shown cycle, not by the camera's " +
-  'direction. Unlike the server, the true distance is used every cycle, and the chances ' +
-  'show as opacity and gray.';
-
 const GUIDES: Choice<AppSettings['compass3d']>[] = [
   ['off', 'Off', 'Not shown.'],
   ['player', 'Player Camera', 'Shown with the Player camera only.'],
   ['all', 'All Cameras', 'Shown with every camera but Top, which is a map already.'],
 ];
+
+const PLAYER_CAMERA_NOTE =
+  "The 3D view's Player camera, at the selected player. Point at an item for details.";
+const SIGHT_NOTE =
+  'Only with a connected player selected, by its face direction and view width in the log.';
 const COMPASS_TOOLTIP =
   'A strip at the top: the 360° around the camera direction (the triangle), with the ' +
   'directions of the goals (L, R in the team colors) and the ball, and what the camera sees ' +
@@ -1056,8 +1140,7 @@ const COMPASS_TOOLTIP =
 const MINIMAP_TOOLTIP =
   'The pitch at the bottom right as the 2D view shows it, with the players, the ball, and ' +
   'where the camera is and what it sees.';
-const GUIDES_NOTE =
-  'To tell which way the camera looks. They show everything, whatever the Player Sight.';
+const GUIDES_NOTE = 'Which way the camera looks; they show everything, whatever the Player Sight.';
 const BOARDS_TOOLTIP =
   'Boards around the pitch, 5.5 m out and 1 m high: a dark shade of the team color with the ' +
   'team name and edges in the team color, changing at the halfway line.';
@@ -1065,28 +1148,34 @@ const BANNERS_TOOLTIP =
   'A banner behind each goal, 22 m back and floating 12–20 m high, with the team name and ' +
   'logo: above the goal, so that the goal stands out against the sky and the ground beyond.';
 const STADIUM_NOTE =
-  'To tell the ends apart: the left team keeps the left goal for the whole game. The goal ' +
-  'nets are always in the colors of the teams that keep them. The boards and the banners ' +
-  'are dark, so that the players in the team colors stand out against them.';
+  'In the team colors, to tell the ends apart; the goal nets always are. Point for details.';
 
-/** The default choices, for the Default button's tooltip. */
-function default3dTab(): string {
+const choiceLabel = <T extends string>(choices: readonly Choice<T>[], v: T) =>
+  choices.find(([c]) => c === v)?.[1] ?? v;
+
+/** The default player camera, for the Default button's tooltip. */
+function defaultPlayerCamera(): string {
   const d = DEFAULT_PLAYER_CAMERA;
-  const label = <T extends string>(choices: readonly Choice<T>[], v: T) =>
-    choices.find(([c]) => c === v)?.[1] ?? v;
   return [
-    label(POSITIONS, d.position),
-    label(DIRECTIONS, d.direction),
-    label(MOTIONS, d.motion),
-    label(FOVS, d.fov),
-    label(SIGHTS, d.sight),
+    choiceLabel(POSITIONS, d.position),
+    choiceLabel(DIRECTIONS, d.direction),
+    choiceLabel(MOTIONS, d.motion),
+    choiceLabel(FOVS, d.fov),
+    choiceLabel(SIGHTS, d.sight),
     `τ ${d.timeConstant} s`,
     `ω ${d.maxTurn}°/s`,
     `Fixed ${d.fixedFov}°`,
-    `Compass ${label(GUIDES, DEFAULT_APP_SETTINGS.compass3d)}`,
-    `Minimap ${label(GUIDES, DEFAULT_APP_SETTINGS.minimap3d)}`,
-    `Boards ${DEFAULT_APP_SETTINGS.boards3d ? 'On' : 'Off'}`,
-    `Banners ${DEFAULT_APP_SETTINGS.banners3d ? 'On' : 'Off'}`,
+  ].join(', ');
+}
+
+/** The defaults of the 3D tab, for the Default button's tooltip. */
+function defaultView3d(): string {
+  const d = DEFAULT_APP_SETTINGS;
+  return [
+    `Compass ${choiceLabel(GUIDES, d.compass3d)}`,
+    `Minimap ${choiceLabel(GUIDES, d.minimap3d)}`,
+    `Boards ${d.boards3d ? 'On' : 'Off'}`,
+    `Banners ${d.banners3d ? 'On' : 'Off'}`,
   ].join(', ');
 }
 

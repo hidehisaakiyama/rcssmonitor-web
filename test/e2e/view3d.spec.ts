@@ -353,7 +353,7 @@ test('chooses the player camera styles in the preference dialog', async ({ page 
   expect((await scene(page))?.players).toBe(5);
 
   await page.keyboard.press('Control+v');
-  await page.locator('#config-tab-3d').click();
+  await page.locator('#config-tab-player-camera').click();
   for (const id of ['position-shoulder', 'direction-head', 'motion-smooth', 'fov-fixed']) {
     await expect(page.locator(`#config-player-camera-${id}`)).toBeChecked();
   }
@@ -372,7 +372,7 @@ test('chooses the player camera styles in the preference dialog', async ({ page 
   );
   await expect(page.locator('#config-player-camera-default')).toHaveAttribute(
     'title',
-    /Over the Shoulder, Head \(Body \+ Neck\), Smooth, Fixed, Server Rules, τ 0\.5 s, ω 90°\/s, Fixed 120°/,
+    /Over the Shoulder, Head, Smooth, Fixed, Server Rules, τ 0\.5 s, ω 90°\/s, Fixed 120°/,
   );
 
   // The first, plain camera can still be chosen: at the eyes, as wide as the view (90).
@@ -381,8 +381,35 @@ test('chooses the player camera styles in the preference dialog', async ({ page 
   await expect.poll(async () => (await camera())?.position).toEqual({ x: 0, y: 1.65, z: 0 });
   await page.locator('#config-player-camera-fov-view').check();
   await expect.poll(async () => (await camera())?.fov).toBeCloseTo(vertical(90), 3);
-  // Or fixed at another width.
+  // The numbers the chosen styles do not use are dim.
+  await expect(page.locator('#config-player-camera-fixed-fov')).toBeDisabled();
+  await page.locator('#config-player-camera-motion-instant').check();
+  await expect(page.locator('#config-player-camera-max-turn')).toBeDisabled();
+  await expect(page.locator('#config-player-camera-time-constant')).toBeDisabled();
+  await expect(page.locator('label[for="config-player-camera-max-turn"]')).toHaveClass(/disabled/);
+  await page.locator('#config-player-camera-motion-smooth').check();
+  await expect(page.locator('#config-player-camera-max-turn')).toBeEnabled();
+  // Or fixed at another width. Out of the range, it shows the error color
+  // while typed, then goes to the nearest end; what is not a number goes back.
   await page.locator('#config-player-camera-fov-fixed').check();
+  const fixed = page.locator('#config-player-camera-fixed-fov');
+  await expect(fixed).toHaveAttribute('title', /Range: 20–120°/);
+  await expect(page.locator('#config-player-camera-max-turn')).toHaveAttribute(
+    'title',
+    /Range: 1–3600°\/s/,
+  );
+  await fixed.fill('200');
+  await expect(fixed).toHaveClass(/invalid/);
+  await fixed.press('Enter');
+  await expect(fixed).toHaveValue('120');
+  await expect(fixed).not.toHaveClass(/invalid/);
+  await expect.poll(async () => (await camera())?.fov).toBeCloseTo(vertical(120), 3);
+  await fixed.fill('5');
+  await fixed.press('Enter');
+  await expect(fixed).toHaveValue('20');
+  await fixed.fill('');
+  await fixed.press('Enter');
+  await expect(fixed).toHaveValue('20');
   await page.locator('#config-player-camera-fixed-fov').fill('60');
   await page.locator('#config-player-camera-fixed-fov').press('Enter');
   await expect.poll(async () => (await camera())?.fov).toBeCloseTo(vertical(60), 3);
@@ -391,7 +418,7 @@ test('chooses the player camera styles in the preference dialog', async ({ page 
   await page.reload();
   await wait3d(page);
   await page.keyboard.press('Control+v');
-  await page.locator('#config-tab-3d').click();
+  await page.locator('#config-tab-player-camera').click();
   await expect(page.locator('#config-player-camera-position-eye')).toBeChecked();
   await expect(page.locator('#config-player-camera-fixed-fov')).toHaveValue('60');
   await expect(positionHint).toContainText('At the eyes');
@@ -439,7 +466,7 @@ test("draws only what the player camera's player perceives", async ({ page }) =>
   });
 
   await page.keyboard.press('Control+v');
-  await page.locator('#config-tab-3d').click();
+  await page.locator('#config-tab-player-camera').click();
   await expect(page.locator('#config-player-camera-sight-server')).toBeChecked();
   await page.locator('#config-player-camera-sight-view').check();
   await expect.poll(seen).toEqual({
@@ -529,7 +556,10 @@ test('paints the ends in the team colors and shows the compass and the minimap',
   await page.keyboard.press('Control+v');
   await page.locator('#config-tab-3d').click();
   await expect(page.locator('#config-compass-3d-player')).toBeChecked();
-  await expect(page.locator('#config-minimap-3d-hint')).toContainText('every camera but Top');
+  await expect(page.locator('label:has(#config-minimap-3d-all)')).toHaveAttribute(
+    'title',
+    /every camera but Top/,
+  );
   await page.locator('#config-compass-3d-all').check();
   await expect.poll(async () => (await guides()).compass).not.toBeNull();
   // The boards and the banners can be hidden; the nets keep the colors.
@@ -542,7 +572,7 @@ test('paints the ends in the team colors and shows the compass and the minimap',
       return s && { boards: s.boards, banners: s.banners, nets: s.nets };
     })
     .toEqual({ boards: false, banners: false, nets: ['#ff0000', '#00bfff'] });
-  await page.locator('#config-player-camera-default').click();
+  await page.locator('#config-3d-default').click();
   await expect(page.locator('#config-compass-3d-off')).toBeChecked();
   await expect(page.locator('#config-minimap-3d-off')).toBeChecked();
   await expect(page.locator('#config-banners-3d')).toBeChecked();
