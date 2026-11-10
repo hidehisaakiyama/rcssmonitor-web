@@ -14,6 +14,14 @@ export interface PlayerHit {
   readonly y: number;
 }
 
+/** A text for the HUD at a canvas point (CSS pixels), as the 2D view writes it beside a point. */
+export interface ScreenLabel {
+  readonly x: number;
+  readonly y: number;
+  readonly text: string;
+  readonly color: string;
+}
+
 /** The game state to draw. */
 export interface SceneSnapshot {
   readonly store: GameStore;
@@ -46,6 +54,8 @@ export interface FieldRenderer {
   fieldToScreen(x: number, y: number): Vec2 | null;
   /** The player drawn under a canvas point (CSS pixels), in front of the rest (3D). */
   playerAt?(x: number, y: number): PlayerHit | null;
+  /** The overlays' texts for the HUD to write (3D). */
+  labels?(): ScreenLabel[];
   /** Where the 3D camera is, for the compass and the minimap; null: none to draw. */
   guide?(): CameraGuide | null;
   dispose(): void;

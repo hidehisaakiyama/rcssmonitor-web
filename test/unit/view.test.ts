@@ -4,7 +4,7 @@ import { disabledPlayer, type Frame, type PlayerState } from '../../src/core/fra
 import { handleViewKey } from '../../src/ui/shortcuts';
 import { scoreBoardText } from '../../src/view/hud/score-board';
 import { darker } from '../../src/view/palette';
-import { offsideLines, qtNumber } from '../../src/view/render2d/player-painter';
+import { offsideLines, qtNumber } from '../../src/view/overlay-math';
 import { layoutViewport } from '../../src/view/render2d/viewport';
 import { ViewState } from '../../src/view/view-state';
 import { loadFixture } from './helpers';

@@ -1,6 +1,5 @@
 // Players (rcssmonitor src/player_painter.cpp).
-import { MAX_PLAYER, PITCH, Side } from '../../core/constants';
-import { formatG } from '../../core/number-format';
+import { PITCH, Side } from '../../core/constants';
 import {
   hasRedCard,
   hasYellowCard,
@@ -10,16 +9,17 @@ import {
   type Frame,
   type PlayerState,
 } from '../../core/frame';
-import {
-  circleIntersections,
-  DEG2RAD,
-  isLeftOf,
-  normalizeAngle,
-  rint,
-  rotate,
-  vectorAngle,
-} from '../../core/geometry';
+import { DEG2RAD, rint } from '../../core/geometry';
 import type { PlayerType, ServerParam } from '../../core/params';
+import {
+  catchAreaRadii,
+  focusPointOf,
+  kickAccel,
+  offsideLines,
+  tackleChances,
+  tackleText,
+  type Arc,
+} from '../overlay-math';
 import { cssFont, darker } from '../palette';
 import { playerStyle } from '../player-style';
 import type { ViewState } from '../view-state';
@@ -214,14 +214,12 @@ function drawViewArea(c: PlayerPaintContext, param: Param, selected: boolean): v
 
 function drawFocusPoint(c: PlayerPaintContext, param: Param): void {
   const { p, vp, view } = c;
-  const player = param.player;
-  const fp = player.focusPoint;
+  const fp = focusPointOf(param.player);
   if (!fp) {
     return;
   }
-  const angle = (player.body + player.neck + fp.dir) * DEG2RAD;
-  const ix = vp.screenX(player.x + fp.dist * Math.cos(angle));
-  const iy = vp.screenY(player.y + fp.dist * Math.sin(angle));
+  const ix = vp.screenX(fp.x);
+  const iy = vp.screenY(fp.y);
   const r = vp.scale(view.options.focusPointSize);
   p.setPen(view.colors.focusPoint);
   p.setBrush(null);
@@ -233,41 +231,27 @@ function drawCatchArea(c: PlayerPaintContext, param: Param): void {
   const { p, vp, view, sp } = c;
   const left = param.player.side === Side.Left;
   const color = left ? view.colors.leftGoalie : view.colors.rightGoalie;
+  const radii = catchAreaRadii(sp, param.type);
 
-  const area = Math.hypot(sp.catchable_area_w * 0.5, sp.catchable_area_l);
-  const catchable = vp.scale(area);
+  const catchable = vp.scale(radii.catchable);
   p.setPen(color);
   p.setBrush(null);
   p.drawEllipse(param.x - catchable, param.y - catchable, catchable * 2, catchable * 2);
 
-  const stretch = param.type.catchable_area_l_stretch;
-  const maxR = vp.scale(Math.hypot(sp.catchable_area_w * 0.5, sp.catchable_area_l * stretch));
-  if (maxR > catchable) {
+  if (radii.stretched) {
     p.setPen({ color: darker(color, 200), width: 0, dot: true });
-    p.drawEllipse(param.x - maxR, param.y - maxR, maxR * 2, maxR * 2);
-    const minR = vp.scale(
-      Math.hypot(sp.catchable_area_w * 0.5, sp.catchable_area_l * (1.0 - (stretch - 1.0))),
-    );
-    p.drawEllipse(param.x - minR, param.y - minR, minR * 2, minR * 2);
+    for (const radius of radii.stretched) {
+      const r = vp.scale(radius);
+      p.drawEllipse(param.x - r, param.y - r, r * 2, r * 2);
+    }
   }
 }
 
 function drawTackleArea(c: PlayerPaintContext, param: Param): void {
   const { p, vp, view, sp } = c;
   const player = param.player;
-  const rel = rotate({ x: param.ball.x - player.x, y: param.ball.y - player.y }, -player.body);
-
-  const tackleDist = rel.x > 0 ? sp.tackle_dist : sp.tackle_back_dist;
-  if (tackleDist < 1.0e-5) {
-    return;
-  }
-  const tackleFail =
-    (Math.abs(rel.x) / tackleDist) ** sp.tackle_exponent +
-    (Math.abs(rel.y) / sp.tackle_width) ** sp.tackle_exponent;
-  const foulFail =
-    (Math.abs(rel.x) / tackleDist) ** sp.foul_exponent +
-    (Math.abs(rel.y) / sp.tackle_width) ** sp.foul_exponent;
-  if (tackleFail >= 1.0 && foulFail >= 1.0) {
+  const chances = tackleChances(sp, player, param.ball);
+  if (!chances) {
     return;
   }
 
@@ -288,97 +272,44 @@ function drawTackleArea(c: PlayerPaintContext, param: Param): void {
   const textRadius = Math.min(40, param.drawRadius);
   p.setFont(cssFont(view.fonts.player));
   p.setPen(pen);
-  const x = param.x + textRadius;
-  const y = param.y + 2 + p.fontAscent();
-  if (tackleFail < 1.0 && foulFail < 1.0) {
-    p.drawText(x, y, `T=${qtNumber(1.0 - tackleFail)},F=${qtNumber(1.0 - foulFail)}`);
-  } else if (tackleFail < 1.0) {
-    p.drawText(x, y, `Tackle=${qtNumber(1.0 - tackleFail)}`);
-  } else {
-    p.drawText(x, y, `Foul=${qtNumber(1.0 - foulFail)}`);
-  }
+  p.drawText(param.x + textRadius, param.y + 2 + p.fontAscent(), tackleText(chances));
 }
 
 function drawKickAccelArea(c: PlayerPaintContext, param: Param): void {
   const { p, vp, view, sp } = c;
-  const player = param.player;
-  const type = param.type;
   const ball = param.ball;
-  const bpos = { x: ball.x, y: ball.y };
-  const rel = rotate({ x: ball.x - player.x, y: ball.y - player.y }, -player.body);
-  const ballDist = Math.hypot(rel.x, rel.y);
-  if (ballDist > type.player_size + type.kickable_margin + sp.ball_size) {
+  const kick = kickAccel(sp, param.type, param.player, ball);
+  if (!kick) {
     return;
   }
-
-  const dirDiff = Math.abs(vectorAngle(rel.x, rel.y));
-  let maxAccel =
-    sp.maxpower *
-    type.kick_power_rate *
-    (1.0 -
-      (0.25 * dirDiff) / 180.0 -
-      (0.25 * (ballDist - type.player_size - sp.ball_size)) / type.kickable_margin);
-  maxAccel = Math.min(maxAccel, sp.ball_accel_max);
-
-  const bnext = { x: bpos.x + ball.vx, y: bpos.y + ball.vy };
-  const bx = vp.screenX(bpos.x);
-  const by = vp.screenY(bpos.y);
-  const nx = vp.screenX(bnext.x);
-  const ny = vp.screenY(bnext.y);
-  const maxSpeedR = vp.scale(sp.ball_speed_max);
-  const maxAccelR = vp.scale(maxAccel);
+  const nx = vp.screenX(kick.next.x);
+  const ny = vp.screenY(kick.next.y);
 
   p.setPen(view.colors.kickAccel);
   p.setBrush(null);
   // the ball's move without noise
-  p.drawLine(bx, by, nx, ny);
+  p.drawLine(vp.screenX(ball.x), vp.screenY(ball.y), nx, ny);
 
-  const points = circleIntersections(bpos, sp.ball_speed_max, bnext, maxAccel);
-  const [i1, i2] = points;
-  if (points.length !== 2 || !i1 || !i2) {
-    // Just the area the ball can reach next by the maximum acceleration.
-    p.drawEllipse(nx - maxAccelR, ny - maxAccelR, maxAccelR * 2, maxAccelR * 2);
-  } else {
-    const toNext = vectorAngle(bnext.x - bpos.x, bnext.y - bpos.y);
-    const [start, span] = arcBetween(
-      vectorAngle(i1.x - bpos.x, i1.y - bpos.y),
-      vectorAngle(i2.x - bpos.x, i2.y - bpos.y),
-      toNext,
-    );
-    p.drawArc(bx - maxSpeedR, by - maxSpeedR, maxSpeedR * 2, maxSpeedR * 2, start, span);
-
-    const [start2, span2] = arcBetween(
-      vectorAngle(i1.x - bnext.x, i1.y - bnext.y),
-      vectorAngle(i2.x - bnext.x, i2.y - bnext.y),
-      normalizeAngle(toNext + 180.0),
-    );
-    p.drawArc(nx - maxAccelR, ny - maxAccelR, maxAccelR * 2, maxAccelR * 2, start2, span2);
+  for (const arc of kick.arcs) {
+    const x = vp.screenX(arc.center.x);
+    const y = vp.screenY(arc.center.y);
+    const r = vp.scale(arc.radius);
+    if (arc.span >= 360) {
+      // Just the area the ball can reach next by the maximum acceleration.
+      p.drawEllipse(x - r, y - r, r * 2, r * 2);
+    } else {
+      p.drawArc(x - r, y - r, r * 2, r * 2, ...qtArc(arc));
+    }
   }
 
   p.setFont(cssFont(view.fonts.player));
   p.setPen(view.colors.kickAccel);
-  p.drawText(nx + 10, ny + p.fontAscent(), `MaxAccel=${maxAccel.toFixed(3)}`);
+  p.drawText(nx + 10, ny + p.fontAscent(), `MaxAccel=${kick.maxAccel.toFixed(3)}`);
 }
 
-/**
- * The arc from one intersection to the other that faces `toward`, as Qt arc
- * angles (1/16 degree).
- */
-function arcBetween(a1: number, a2: number, toward: number): [number, number] {
-  let start: number;
-  let span: number;
-  if (isLeftOf(a1, toward)) {
-    start = a1;
-    span = normalizeAngle(a2 - a1);
-  } else {
-    start = a2;
-    span = normalizeAngle(a1 - a2);
-  }
-  if (span < 0) {
-    span += 360;
-  }
-  span *= -1;
-  return [rint(-start * 16), rint(span * 16)];
+/** An arc as Qt angles (1/16 degree, counter-clockwise on the screen). */
+function qtArc(arc: Arc): [number, number] {
+  return [rint(-arc.start * 16), rint(-arc.span * 16)];
 }
 
 function drawPointto(c: PlayerPaintContext, param: Param): void {
@@ -447,43 +378,6 @@ function drawText(c: PlayerPaintContext, param: Param): void {
   }
 }
 
-/**
- * The offside lines: the second last defender of each team, or the ball if
- * it is further back, and not beyond the goal line.
- */
-export function offsideLines(frame: Frame): [number, number] {
-  let offsideL = 0;
-  let minX = 0;
-  let offsideR = 0;
-  let maxX = 0;
-  for (let i = 0; i < 2 * MAX_PLAYER; ++i) {
-    const p = frame.players[i];
-    if (!p || p.state === 0) {
-      continue;
-    }
-    if (p.side === Side.Left && p.x < offsideL) {
-      if (p.x < minX) {
-        offsideL = minX;
-        minX = p.x;
-      } else {
-        offsideL = p.x;
-      }
-    } else if (p.side === Side.Right && offsideR < p.x) {
-      if (maxX < p.x) {
-        offsideR = maxX;
-        maxX = p.x;
-      } else {
-        offsideR = p.x;
-      }
-    }
-  }
-  const half = PITCH.length * 0.5;
-  return [
-    Math.max(Math.min(offsideL, frame.ball.x), -half),
-    Math.min(Math.max(offsideR, frame.ball.x), half),
-  ];
-}
-
 function drawOffsideLine(c: PlayerPaintContext, frame: Frame): void {
   const { p, vp, view } = c;
   const [l, r] = offsideLines(frame);
@@ -494,9 +388,4 @@ function drawOffsideLine(c: PlayerPaintContext, frame: Frame): void {
   p.drawLine(vp.screenX(l), top, vp.screenX(l), bottom);
   p.setPen(view.colors.rightTeam);
   p.drawLine(vp.screenX(r), top, vp.screenX(r), bottom);
-}
-
-/** QString::arg(value, 0, 'g', 3): up to 3 significant digits, no trailing zeros. */
-export function qtNumber(v: number): string {
-  return v === 0 ? '0' : formatG(v, 3);
 }

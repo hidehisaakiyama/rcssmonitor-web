@@ -254,7 +254,8 @@ export class FieldView {
       ? { start: this.measureMouse.pressedPoint, end: this.measureMouse.draggedPoint }
       : null;
     const guide = this.renderer.guide?.() ?? null;
-    this.hud.render(scene, this.view, measure, (x, y) => this.toField({ x, y }), guide);
+    const labels = this.renderer.labels?.() ?? [];
+    this.hud.render(scene, this.view, measure, (x, y) => this.toField({ x, y }), guide, labels);
   }
 
   private toField(p: Vec2): Vec2 {

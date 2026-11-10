@@ -21,6 +21,11 @@
 // - The player camera may draw only what the player perceives (sight.ts):
 //   the others fade to gray when their team is not known, lose their number
 //   and direction marks, or are not drawn.
+// - The overlays of the 2D view (overlays.ts) on the ground: the focus
+//   point, the catch, tackle and kick acceleration areas, the pointto
+//   lines, the offside lines and the ball's path; their texts go to the
+//   HUD (labels()). The player type is written with the number, which takes
+//   the illegal defense color as in 2D. Not the stamina.
 // - To tell the ends apart, the goal nets, the boards around the pitch and
 //   the banners above and behind the goals are in the team colors
 //   (stadium.ts; the boards and the banners can be hidden). The HUD may show
@@ -71,15 +76,16 @@ import {
   hasYellowCard,
   headDirection,
   isAlive,
+  isIllegalDefense,
   type Frame,
   type PlayerState,
 } from '../../core/frame';
 import type { GameStore } from '../../core/game-store';
 import { DEG2RAD, RAD2DEG, type Vec2 } from '../../core/geometry';
-import { DEFAULT_SERVER_PARAM, type ServerParam } from '../../core/params';
+import { DEFAULT_PLAYER_TYPE, DEFAULT_SERVER_PARAM, type ServerParam } from '../../core/params';
 import { guideShown, type CameraGuide, type GuideMode } from '../hud/guides';
 import { playerStyle } from '../player-style';
-import type { FieldRenderer, PlayerHit, SceneSnapshot } from '../renderer';
+import type { FieldRenderer, PlayerHit, SceneSnapshot, ScreenLabel } from '../renderer';
 import type { ViewState } from '../view-state';
 import {
   broadcastPose,
@@ -93,6 +99,7 @@ import {
 } from './cameras';
 import { fieldTextureKey, paintFieldTexture } from './field-texture';
 import { interpolateFrame } from './interpolate';
+import { Overlays, type OverlayState } from './overlays';
 import { DEFAULT_PLAYER_CAMERA, PlayerCamera, type PlayerCameraOptions } from './player-camera';
 import {
   ballCenterHeight,
@@ -118,6 +125,12 @@ const NUMBER_HEIGHT = HEAD_HEIGHT + 0.75;
 /** The smoothing cameras count as still within this distance of where they go. */
 const SETTLED = 0.02;
 
+/** The number labels: canvas pixels, and meters per 64 pixels. */
+const LABEL_WIDTH = 192;
+const LABEL_HEIGHT = 64;
+const LABEL_SCALE = 1.3;
+const CARD_WIDTH = 0.42;
+
 /** What the end-to-end tests read. */
 export interface Render3DState {
   readonly ball: { readonly visible: boolean } & World;
@@ -140,6 +153,10 @@ export interface Render3DState {
     /** Vertical, in degrees. */
     readonly fov: number;
   };
+  /** The overlays drawn: how many of each, and their texts. */
+  readonly overlays: OverlayState;
+  /** The number labels shown (number, player type), by player index. */
+  readonly labels: readonly string[];
   /** The ends in the team colors: the nets (left, right), the boards and the banners. */
   readonly stadium: StadiumState & { readonly nets: readonly string[] };
   /** The frame drawn last (before interpolation), or -1. */
@@ -149,6 +166,21 @@ export interface Render3DState {
 
 const index = (p: PlayerState) => (p.side === Side.Right ? MAX_PLAYER : 0) + p.unum - 1;
 const world = (v: { x: number; y: number; z: number }): World => ({ x: v.x, y: v.y, z: v.z });
+
+/**
+ * The label over a player: its number and its type, as the 2D view writes
+ * them (player_painter.cpp drawText; not the stamina in 3D).
+ */
+function numberText(p: PlayerState, o: ViewState['options']): string {
+  const parts: string[] = [];
+  if (o.showPlayerNumber) {
+    parts.push(String(p.unum));
+  }
+  if (o.showPlayerType) {
+    parts.push(`t${p.type}`);
+  }
+  return parts.join(',');
+}
 
 /** The selected player in `frame`, if it is connected. */
 function selectedPlayer(frame: Frame | null, view: ViewState): PlayerState | null {
@@ -196,6 +228,9 @@ export class Render3D implements FieldRenderer {
   private readonly noseMaterial: MeshLambertMaterial;
   private readonly faceMaterial: MeshLambertMaterial;
   private readonly numbers: Sprite[] = [];
+  /** What each number label says. */
+  private readonly numberTexts: string[] = [];
+  private readonly overlays = new Overlays();
   private readonly cards: Sprite[] = [];
   private readonly sectors: Mesh[] = [];
   private readonly sectorGeometries = new Map<number, BufferGeometry>();
@@ -266,7 +301,7 @@ export class Render3D implements FieldRenderer {
     outside.position.y = -0.02;
     this.scene.add(outside);
 
-    this.scene.add(this.goal(-1), this.goal(1));
+    this.scene.add(this.goal(-1), this.goal(1), this.overlays.group);
     this.stadium = new Stadium(this.fieldTexture.anisotropy);
     this.scene.add(this.stadium.group);
 
@@ -302,16 +337,17 @@ export class Render3D implements FieldRenderer {
       }),
     );
     for (let i = 0; i < PLAYERS; ++i) {
-      const number = this.numberSprite(String((i % MAX_PLAYER) + 1));
+      const number = this.numberSprite();
       const card = new Sprite(this.track(new SpriteMaterial({ depthTest: false })));
-      card.scale.set(0.42, 0.6, 1);
-      card.center.set(-1.3, 0.5); // to the right of the number
+      card.scale.set(CARD_WIDTH, 0.6, 1);
+      card.center.set(-1.3, 0.5); // to the right of the number (setNumberText)
       card.renderOrder = 3;
       card.visible = false;
       const sector = new Mesh(undefined, this.sectorMaterial);
       sector.renderOrder = 1;
       sector.visible = false;
       this.numbers.push(number);
+      this.numberTexts.push('');
       this.cards.push(card);
       this.sectors.push(sector);
       this.scene.add(number, card, sector);
@@ -405,8 +441,28 @@ export class Render3D implements FieldRenderer {
     this.updatePlayers(frame, store, view, sp);
     this.updateViewAreas(frame, view, sp);
     this.updateBall(frame, view, sp);
+    this.overlays.update(
+      frame,
+      view,
+      sp,
+      (id) => store?.playerType(id) ?? DEFAULT_PLAYER_TYPE,
+      (p) => !this.perceptions || (this.perceptions[index(p)]?.facing ?? false),
+      this.ballPerceived,
+    );
     this.updateCamera(frame, view, dt);
     this.renderer.render(this.scene, this.camera);
+  }
+
+  /** The overlays' texts where they are on the canvas (CSS pixels), for the HUD. */
+  labels(): ScreenLabel[] {
+    const out: ScreenLabel[] = [];
+    for (const l of this.overlays.labels) {
+      const s = this.fieldToScreen(l.x, l.y);
+      if (s && s.x >= 0 && s.y >= 0 && s.x < this.width && s.y < this.height) {
+        out.push({ x: s.x, y: s.y, text: l.text, color: l.color });
+      }
+    }
+    return out;
   }
 
   /** True while a camera is still moving toward where it goes. */
@@ -458,6 +514,7 @@ export class Render3D implements FieldRenderer {
   dispose(): void {
     this.detach();
     this.stadium.dispose();
+    this.overlays.dispose();
     for (const d of this.disposables) {
       d.dispose();
     }
@@ -556,6 +613,8 @@ export class Render3D implements FieldRenderer {
       ball: at(this.ball),
       shadow: at(this.shadow),
       ...this.counts,
+      overlays: this.overlays.inspect(),
+      labels: this.numbers.map((s, i) => (s.visible ? (this.numberTexts[i] ?? '') : '')),
       stadium: {
         ...this.stadium.inspect(),
         nets: this.nets.map((m) => `#${m.color.getHexString()}`),
@@ -749,28 +808,45 @@ export class Render3D implements FieldRenderer {
     return g;
   }
 
-  private numberSprite(text: string): Sprite {
+  /** A label above a player's head for its number (and type), written by setNumberText. */
+  private numberSprite(): Sprite {
     const c = document.createElement('canvas');
-    c.width = 64;
-    c.height = 64;
-    const ctx = c.getContext('2d');
-    if (ctx) {
-      ctx.font = 'bold 40px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.lineWidth = 6;
-      ctx.strokeStyle = '#000000';
-      ctx.strokeText(text, 32, 34);
-      ctx.fillStyle = '#ffffff';
-      ctx.fillText(text, 32, 34);
-    }
+    c.width = LABEL_WIDTH;
+    c.height = LABEL_HEIGHT;
     const texture = new CanvasTexture(c);
     texture.colorSpace = SRGBColorSpace;
     const sprite = new Sprite(new SpriteMaterial({ map: texture, depthTest: false }));
-    sprite.scale.set(1.3, 1.3, 1);
+    sprite.scale.set((LABEL_SCALE * LABEL_WIDTH) / LABEL_HEIGHT, LABEL_SCALE, 1);
     sprite.renderOrder = 3;
     sprite.visible = false;
     return sprite;
+  }
+
+  /** Writes a number label again when its text changes, and puts the card to its right. */
+  private setNumberText(i: number, text: string): void {
+    const sprite = this.numbers[i];
+    const map = sprite?.material.map;
+    if (!sprite || !map || this.numberTexts[i] === text) {
+      return;
+    }
+    this.numberTexts[i] = text;
+    const c = map.image as HTMLCanvasElement;
+    const ctx = c.getContext('2d');
+    if (!ctx) {
+      return;
+    }
+    ctx.clearRect(0, 0, c.width, c.height);
+    ctx.font = 'bold 40px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = '#000000';
+    ctx.strokeText(text, c.width / 2, 34, c.width - 8);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(text, c.width / 2, 34, c.width - 8);
+    map.needsUpdate = true;
+    const width = (Math.min(c.width - 8, ctx.measureText(text).width) * LABEL_SCALE) / LABEL_HEIGHT;
+    this.cards[i]?.center.set(-(width / 2 + 0.08) / CARD_WIDTH, 0.5);
   }
 
   /** A sector of `width` degrees around +X, radius 1, on the ground. */
@@ -874,7 +950,7 @@ export class Render3D implements FieldRenderer {
     let unknownTeams = 0;
     const drawn: PlayerState[] = [];
     /** The numbers to draw and their opacity. */
-    const numbered = new Map<number, number>();
+    const numbered = new Map<number, { opacity: number; text: string; illegal: boolean }>();
     const carded = new Set<number>();
     // At the eyes, the player camera does not see its own head.
     const self =
@@ -954,8 +1030,10 @@ export class Render3D implements FieldRenderer {
         ++facings;
       }
 
-      if (seen.unum > 0) {
-        numbered.set(i, seen.unum);
+      const text = numberText(p, view.options);
+      if (seen.unum > 0 && text !== '') {
+        const illegal = view.options.showIllegalDefense && isIllegalDefense(p);
+        numbered.set(i, { opacity: seen.unum, text, illegal });
         this.numbers[i]?.position.set(p.x, NUMBER_HEIGHT, p.y);
       }
       const card = this.cards[i];
@@ -991,9 +1069,14 @@ export class Render3D implements FieldRenderer {
     let numbers = 0;
     let fadingNumbers = 0;
     this.numbers.forEach((s, i) => {
-      const opacity = numbered.get(i) ?? 0;
-      s.visible = view.options.showPlayerNumber && opacity > 0;
+      const label = numbered.get(i);
+      const opacity = label?.opacity ?? 0;
+      s.visible = opacity > 0;
       s.material.opacity = opacity;
+      if (label) {
+        this.setNumberText(i, label.text);
+        s.material.color.set(label.illegal ? view.colors.illegalDefense : '#ffffff');
+      }
       if (s.visible) {
         ++numbers;
         fadingNumbers += opacity < 1 ? 1 : 0;

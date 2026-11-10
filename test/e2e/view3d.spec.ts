@@ -32,11 +32,23 @@ interface Renderer {
       banners: boolean;
       nets: string[];
     };
+    overlays: {
+      focusPoints: number;
+      catchAreas: number;
+      tackleAreas: number;
+      kickAccelAreas: number;
+      pointtos: number;
+      offsideLines: number;
+      ballPath: number;
+      labels: string[];
+    };
+    labels: string[];
     frameIndex: number;
     drawCalls: number;
   };
   fieldToScreen?(x: number, y: number): { x: number; y: number } | null;
   guide?(): { x: number; y: number; direction: number; fov: number } | null;
+  labels?(): { x: number; y: number; text: string; color: string }[];
 }
 
 interface Hook {
@@ -53,6 +65,7 @@ interface Hook {
   };
   playback: { index: number };
   renderNow(): void;
+  showFrame(index: number): void;
 }
 
 const hook = <T>(page: Page, f: (h: Hook) => T) =>
@@ -805,4 +818,86 @@ test('sends the referee commands aimed in 3D', async ({ page }) => {
   } finally {
     await server.close();
   }
+});
+
+test('draws the overlays of the 2D view in 3D', async ({ page }) => {
+  const options = [
+    'show_player_type=on',
+    'show_focus_point=on',
+    'show_catch_area=on',
+    'show_tackle_area=on',
+    'show_kick_accel_area=on',
+    'show_pointto=on',
+    'show_offside_line=on',
+    'ball_vel_cycle=10',
+  ].join('&');
+  await openApp(page, `?view_3d=on&camera_3d=broadcast&${options}`);
+  await wait3d(page);
+  await loadLog(page, 'json-sample.rcg.gz');
+  // In cycle 32 the left 7 has the ball at its feet.
+  await hook(page, (h) => {
+    h.showFrame(31);
+    h.view.selectPlayer(7);
+  });
+  await expect(page.locator('#frame-label')).toHaveText('32 (32 / 267)');
+  await expect
+    .poll(async () => (await scene(page))?.overlays)
+    .toEqual({
+      focusPoints: 0, // it does not attentionto
+      catchAreas: 2,
+      tackleAreas: 1,
+      kickAccelAreas: 1,
+      pointtos: 12,
+      offsideLines: 2,
+      ballPath: 10,
+      labels: ['T=0.995,F=1', 'MaxAccel=2.209'],
+    });
+  // The number labels with the player types; the texts for the HUD, on the canvas.
+  expect((await scene(page))?.labels[6]).toBe('7,t9');
+  const texts = await hook(page, (h) => h.field.renderer.labels?.().map((l) => l.text));
+  expect(texts).toEqual(['T=0.995,F=1', 'MaxAccel=2.209']);
+
+  // The player camera of the left 7, by the view cone: the overlays of the
+  // players it sees, and its own.
+  await hook(page, (h) => {
+    h.view.selectPlayer(7);
+  });
+  await page.locator('#camera-select').selectOption('player');
+  await page.keyboard.press('Control+v');
+  await page.locator('#config-tab-player-camera').click();
+  await page.locator('#config-player-camera-sight-view').check();
+  await page.keyboard.press('Escape');
+  await expect.poll(async () => (await scene(page))?.overlays.kickAccelAreas).toBe(1);
+  const seen = await scene(page);
+  expect(seen?.overlays.pointtos).toBeLessThan(12);
+  expect(seen?.overlays.offsideLines).toBe(2);
+
+  // All off as in 2D: the numbers only.
+  await page.locator('#camera-select').selectOption('broadcast');
+  await hook(page, (h) => {
+    for (const name of [
+      'showPlayerType',
+      'showCatchArea',
+      'showTackleArea',
+      'showKickAccelArea',
+      'showPointto',
+      'showOffsideLine',
+    ] as const) {
+      h.view.set(name, false);
+    }
+    h.view.set('ballVelCycle', 0);
+  });
+  await expect
+    .poll(async () => (await scene(page))?.overlays)
+    .toEqual({
+      focusPoints: 0,
+      catchAreas: 0,
+      tackleAreas: 0,
+      kickAccelAreas: 0,
+      pointtos: 0,
+      offsideLines: 0,
+      ballPath: 0,
+      labels: [],
+    });
+  expect((await scene(page))?.labels[6]).toBe('7');
 });
