@@ -15,6 +15,20 @@ import {
   type Palette,
 } from '../view/palette';
 import { CAMERA_MODES, type CameraMode } from '../view/render3d/cameras';
+import {
+  DEFAULT_PLAYER_CAMERA,
+  PLAYER_CAMERA_DIRECTIONS,
+  PLAYER_CAMERA_FOVS,
+  PLAYER_CAMERA_MOTIONS,
+  PLAYER_CAMERA_POSITIONS,
+  PLAYER_SIGHTS,
+  type PlayerCameraDirection,
+  type PlayerCameraFov,
+  type PlayerCameraMotion,
+  type PlayerCameraOptions,
+  type PlayerCameraPosition,
+  type PlayerSight,
+} from '../view/render3d/player-camera';
 import { DEFAULT_VIEW_OPTIONS, type ViewOptions } from '../view/view-state';
 import { readSetting, writeSetting } from './storage';
 
@@ -34,6 +48,15 @@ export interface AppSettings {
   view3d: boolean;
   /** The camera of the 3D view. */
   camera3d: CameraMode;
+  /** The styles of the selected player's camera (player-camera.ts). */
+  playerCameraPosition: PlayerCameraPosition;
+  playerCameraDirection: PlayerCameraDirection;
+  playerCameraMotion: PlayerCameraMotion;
+  playerCameraFov: PlayerCameraFov;
+  playerCameraSight: PlayerSight;
+  playerCameraTimeConstant: number;
+  playerCameraMaxTurn: number;
+  playerCameraFixedFov: number;
 }
 
 export const DEFAULT_APP_SETTINGS: Readonly<AppSettings> = Object.freeze({
@@ -46,7 +69,47 @@ export const DEFAULT_APP_SETTINGS: Readonly<AppSettings> = Object.freeze({
   canvasHeight: 0,
   view3d: false,
   camera3d: 'broadcast',
+  playerCameraPosition: DEFAULT_PLAYER_CAMERA.position,
+  playerCameraDirection: DEFAULT_PLAYER_CAMERA.direction,
+  playerCameraMotion: DEFAULT_PLAYER_CAMERA.motion,
+  playerCameraFov: DEFAULT_PLAYER_CAMERA.fov,
+  playerCameraSight: DEFAULT_PLAYER_CAMERA.sight,
+  playerCameraTimeConstant: DEFAULT_PLAYER_CAMERA.timeConstant,
+  playerCameraMaxTurn: DEFAULT_PLAYER_CAMERA.maxTurn,
+  playerCameraFixedFov: DEFAULT_PLAYER_CAMERA.fixedFov,
 });
+
+/** The player camera's settings, for the 3D renderer. */
+export function playerCameraOptions(app: AppSettings): PlayerCameraOptions {
+  return {
+    position: app.playerCameraPosition,
+    direction: app.playerCameraDirection,
+    motion: app.playerCameraMotion,
+    fov: app.playerCameraFov,
+    sight: app.playerCameraSight,
+    timeConstant: app.playerCameraTimeConstant,
+    maxTurn: app.playerCameraMaxTurn,
+    fixedFov: app.playerCameraFixedFov,
+  };
+}
+
+const PLAYER_CAMERA_KEYS = [
+  'playerCameraPosition',
+  'playerCameraDirection',
+  'playerCameraMotion',
+  'playerCameraFov',
+  'playerCameraSight',
+  'playerCameraTimeConstant',
+  'playerCameraMaxTurn',
+  'playerCameraFixedFov',
+] as const satisfies readonly (keyof AppSettings)[];
+
+/** The player camera's settings back to the defaults (the first, plain camera). */
+export function resetPlayerCamera(app: AppSettings): void {
+  for (const key of PLAYER_CAMERA_KEYS) {
+    Object.assign(app, { [key]: DEFAULT_APP_SETTINGS[key] });
+  }
+}
 
 /** What the settings apply to. */
 export interface SettingTargets {
@@ -120,6 +183,20 @@ const appNumber = (key: string, name: NumberKey<AppSettings>, range: NumberRange
     t.app[name] = v;
   },
 });
+type ChoiceKey<T> = { [K in keyof T]: T[K] extends string ? K : never }[keyof T];
+const appChoice = <K extends ChoiceKey<AppSettings>>(
+  key: string,
+  name: K,
+  values: readonly AppSettings[K][],
+): Entry => ({
+  key,
+  kind: 'choice',
+  values,
+  get: (t) => t.app[name],
+  set: (t, v) => {
+    Object.assign(t.app, { [name]: v });
+  },
+});
 const color = (key: string, name: keyof Palette): Entry => ({ key, kind: 'color', name });
 const font = (key: string, name: keyof Fonts): Entry => ({ key, kind: 'font', name });
 
@@ -134,15 +211,15 @@ export const SETTINGS: readonly Entry[] = [
   appNumber('canvas_height', 'canvasHeight', { min: 0, max: 3000, integer: true }),
   // Not in rcssmonitor.
   appBool('view_3d', 'view3d'),
-  {
-    key: 'camera_3d',
-    kind: 'choice',
-    values: CAMERA_MODES,
-    get: (t) => t.app.camera3d,
-    set: (t, v) => {
-      t.app.camera3d = v as CameraMode;
-    },
-  },
+  appChoice('camera_3d', 'camera3d', CAMERA_MODES),
+  appChoice('player_camera_position', 'playerCameraPosition', PLAYER_CAMERA_POSITIONS),
+  appChoice('player_camera_direction', 'playerCameraDirection', PLAYER_CAMERA_DIRECTIONS),
+  appChoice('player_camera_motion', 'playerCameraMotion', PLAYER_CAMERA_MOTIONS),
+  appChoice('player_camera_fov', 'playerCameraFov', PLAYER_CAMERA_FOVS),
+  appChoice('player_camera_sight', 'playerCameraSight', PLAYER_SIGHTS),
+  appNumber('player_camera_time_constant', 'playerCameraTimeConstant', { min: 0, max: 5 }),
+  appNumber('player_camera_max_turn', 'playerCameraMaxTurn', { min: 1, max: 3600 }),
+  appNumber('player_camera_fixed_fov', 'playerCameraFixedFov', { min: 20, max: 120 }),
 
   viewBool('show_score_board', 'showScoreBoard'),
   viewBool('show_team_graphic', 'showTeamGraphic'),

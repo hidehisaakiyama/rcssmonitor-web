@@ -11,7 +11,12 @@ import {
   saveConnection,
   type ConnectionSettings,
 } from '../options/connection';
-import { DEFAULT_APP_SETTINGS, SettingsStore, type AppSettings } from '../options/settings';
+import {
+  DEFAULT_APP_SETTINGS,
+  playerCameraOptions,
+  SettingsStore,
+  type AppSettings,
+} from '../options/settings';
 import { Playback } from '../playback/playback';
 import {
   CAMERA_LABELS,
@@ -148,6 +153,10 @@ export class App {
         this.applyCanvasSize();
         this.settingsChanged();
       },
+      applyPlayerCamera: () => {
+        this.applyPlayerCamera();
+        this.settingsChanged();
+      },
     });
     this.playerTypes = new PlayerTypeDialog(root, () => this.store);
     this.shortcuts = createShortcutDialog(root);
@@ -225,7 +234,14 @@ export class App {
     if (s.view3d !== this.is3d) {
       void this.set3d(s.view3d);
     }
+    this.applyPlayerCamera();
     this.updateToolbar();
+  }
+
+  /** Gives the 3D view the player camera's styles (the 3D tab of the preference dialog). */
+  private applyPlayerCamera(): void {
+    const options = playerCameraOptions(this.settings);
+    void this.render3d?.then((r) => r.setPlayerCamera(options));
   }
 
   // ---- 2D / 3D
@@ -254,6 +270,7 @@ export class App {
     this.render3d ??= import('../view/render3d/render3d').then((m) => {
       const r = new m.Render3D();
       r.setCameraMode(this.settings.camera3d);
+      r.setPlayerCamera(playerCameraOptions(this.settings));
       // A drag makes the broadcast or goal camera free.
       r.onCameraModeChange = (mode) => {
         this.settings.camera3d = mode;

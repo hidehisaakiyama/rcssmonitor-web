@@ -14,9 +14,13 @@
 //   (interpolate.ts).
 // - Cameras (cameras.ts): free (orbit with the mouse: left drag turns,
 //   Shift / Ctrl + left drag pans, the wheel zooms), broadcast, top, behind
-//   either goal, and the selected player's eyes. Dragging in the broadcast or
-//   goal camera turns it into the free camera. The right button is left for
-//   the referee menu.
+//   either goal, and the selected player's (player-camera.ts: at the eyes or
+//   over the shoulder, in the styles to compare). Dragging in the broadcast
+//   or goal camera turns it into the free camera. The right button is left
+//   for the referee menu.
+// - The player camera may draw only what the player perceives (sight.ts):
+//   the others fade to gray when their team is not known, lose their number
+//   and direction marks, or are not drawn.
 import {
   AmbientLight,
   BoxGeometry,
@@ -77,7 +81,6 @@ import {
   CAMERA_FOV,
   distance,
   goalPose,
-  playerPose,
   smoothToward,
   topHalfSize,
   type CameraMode,
@@ -85,6 +88,7 @@ import {
 } from './cameras';
 import { fieldTextureKey, paintFieldTexture } from './field-texture';
 import { interpolateFrame } from './interpolate';
+import { DEFAULT_PLAYER_CAMERA, PlayerCamera, type PlayerCameraOptions } from './player-camera';
 import {
   ballCenterHeight,
   ballRadius,
@@ -96,8 +100,11 @@ import {
   yaw,
   type World,
 } from './scene-math';
+import { FULL, perceiveBall, perceivePlayer, type Perception } from './sight';
 
 const PLAYERS = 2 * MAX_PLAYER;
+/** A player whose team is not known (the player camera's sight). */
+const UNKNOWN_TEAM_COLOR = '#9a9a9a';
 const BODY_HEIGHT = 1.4;
 const HEAD_RADIUS = 0.22;
 const HEAD_HEIGHT = BODY_HEIGHT + HEAD_RADIUS + 0.03;
@@ -110,10 +117,23 @@ export interface Render3DState {
   readonly ball: { readonly visible: boolean } & World;
   readonly shadow: { readonly visible: boolean } & World;
   readonly players: number;
+  /** The numbers drawn, and how many of them partly (fading). */
+  readonly numbers: number;
+  readonly fadingNumbers: number;
+  /** The players drawn with the body and face direction marks. */
+  readonly facings: number;
+  /** The players drawn in gray: their team is not known. */
+  readonly unknownTeams: number;
   readonly rings: number;
   readonly cards: number;
   readonly viewAreas: number;
-  readonly camera: { readonly mode: CameraMode; readonly position: World; readonly target: World };
+  readonly camera: {
+    readonly mode: CameraMode;
+    readonly position: World;
+    readonly target: World;
+    /** Vertical, in degrees. */
+    readonly fov: number;
+  };
   /** The frame drawn last (before interpolation), or -1. */
   readonly frameIndex: number;
   readonly drawCalls: number;
@@ -121,6 +141,13 @@ export interface Render3DState {
 
 const index = (p: PlayerState) => (p.side === Side.Right ? MAX_PLAYER : 0) + p.unum - 1;
 const world = (v: { x: number; y: number; z: number }): World => ({ x: v.x, y: v.y, z: v.z });
+
+/** The selected player in `frame`, if it is connected. */
+function selectedPlayer(frame: Frame | null, view: ViewState): PlayerState | null {
+  const s = view.selected;
+  const p = s ? frame?.players.find((q) => q.side === s.side && q.unum === s.unum) : undefined;
+  return p && isAlive(p) ? p : null;
+}
 
 export class Render3D implements FieldRenderer {
   readonly kind = '3d';
@@ -171,12 +198,28 @@ export class Render3D implements FieldRenderer {
   private readonly ballMaterial: MeshLambertMaterial;
   private readonly shadow: Mesh;
   private readonly shadowMaterial: MeshBasicMaterial;
-  private counts = { players: 0, rings: 0, cards: 0, viewAreas: 0 };
+  private counts = {
+    players: 0,
+    numbers: 0,
+    fadingNumbers: 0,
+    facings: 0,
+    unknownTeams: 0,
+    rings: 0,
+    cards: 0,
+    viewAreas: 0,
+  };
   private drawnFrame = -1;
+
+  private playerCameraOptions: PlayerCameraOptions = DEFAULT_PLAYER_CAMERA;
+  private readonly playerCamera = new PlayerCamera();
+  /** What the player camera's player perceives, by player index; null: everything. */
+  private perceptions: (Perception | undefined)[] | null = null;
+  private ballPerceived = true;
 
   // Reused every frame.
   private readonly o = new Object3D();
   private readonly color = new Color();
+  private readonly unknownTeam = new Color(UNKNOWN_TEAM_COLOR);
 
   constructor() {
     this.renderer = new WebGLRenderer({ antialias: true });
@@ -340,6 +383,7 @@ export class Render3D implements FieldRenderer {
     const sp = store?.serverParam ?? DEFAULT_SERVER_PARAM;
     const frame = scene ? interpolateFrame(scene.frame, scene.next, scene.alpha) : null;
     this.drawnFrame = scene?.frameIndex ?? -1;
+    this.updateSight(scene, view, sp);
     this.updateField(view, sp);
     this.updatePlayers(frame, store, view, sp);
     this.updateViewAreas(frame, view, sp);
@@ -417,6 +461,21 @@ export class Render3D implements FieldRenderer {
     this.onInvalidate?.();
   }
 
+  /** The styles of the selected player's camera and what it draws; it starts again at once. */
+  setPlayerCamera(options: PlayerCameraOptions): void {
+    const o = this.playerCameraOptions;
+    const same = (Object.keys(options) as (keyof PlayerCameraOptions)[]).every(
+      (k) => options[k] === o[k],
+    );
+    if (same) {
+      return;
+    }
+    this.playerCameraOptions = { ...options };
+    this.playerCamera.reset();
+    this.settled = false;
+    this.onInvalidate?.();
+  }
+
   /** For the end-to-end tests. */
   inspect(): Render3DState {
     const at = (o: Object3D) => ({ visible: o.visible, ...world(o.position) });
@@ -424,7 +483,12 @@ export class Render3D implements FieldRenderer {
       ball: at(this.ball),
       shadow: at(this.shadow),
       ...this.counts,
-      camera: { mode: this.mode, position: this.cameraPosition, target: this.cameraTarget },
+      camera: {
+        mode: this.mode,
+        position: this.cameraPosition,
+        target: this.cameraTarget,
+        fov: this.mode === 'top' ? 0 : this.perspective.fov,
+      },
       frameIndex: this.drawnFrame,
       drawCalls: this.renderer.info.render.calls,
     };
@@ -473,10 +537,32 @@ export class Render3D implements FieldRenderer {
       this.settled = true;
       return;
     }
-    const pose = this.pose(frame, view);
-    // The player camera is the player's eyes, which interpolate already; the
-    // others glide after the ball.
-    const glide = !this.snap && this.mode !== 'player';
+    const aspect = this.width / this.height;
+    const player = this.mode === 'player' ? selectedPlayer(frame, view) : null;
+    if (this.snap || !player) {
+      this.playerCamera.reset();
+    }
+    if (player) {
+      // The player's place interpolates already; the direction and the field
+      // of view follow its style.
+      this.snap = false;
+      const { pose, settled } = this.playerCamera.update(
+        player,
+        aspect,
+        this.playerCameraOptions,
+        dt,
+      );
+      this.settled = settled;
+      this.cameraPosition = pose.position;
+      this.cameraTarget = pose.target;
+      this.setFov(pose.fov);
+      this.applyPerspective();
+      return;
+    }
+    // Without a selected, connected player, the player camera is the broadcast one.
+    const pose = this.pose(frame, aspect);
+    // These glide after the ball.
+    const glide = !this.snap;
     this.snap = false;
     const position = glide ? smoothToward(this.cameraPosition, pose.position, dt) : pose.position;
     const target = glide ? smoothToward(this.cameraTarget, pose.target, dt) : pose.target;
@@ -485,27 +571,24 @@ export class Render3D implements FieldRenderer {
     // Once still, exactly where it goes.
     this.cameraPosition = this.settled ? pose.position : position;
     this.cameraTarget = this.settled ? pose.target : target;
-    if (Math.abs(this.perspective.fov - pose.fov) > 1e-6) {
-      this.perspective.fov = pose.fov;
-      this.perspective.updateProjectionMatrix();
-    }
+    this.setFov(pose.fov);
     this.applyPerspective();
   }
 
-  private pose(frame: Frame | null, view: ViewState): CameraPose {
-    const aspect = this.width / this.height;
+  private setFov(fov: number): void {
+    if (Math.abs(this.perspective.fov - fov) > 1e-6) {
+      this.perspective.fov = fov;
+      this.perspective.updateProjectionMatrix();
+    }
+  }
+
+  private pose(frame: Frame | null, aspect: number): CameraPose {
     const ball = frame?.ball ?? { x: 0, y: 0 };
     switch (this.mode) {
       case 'goal-left':
         return goalPose(-1, ball);
       case 'goal-right':
         return goalPose(1, ball);
-      case 'player': {
-        const s = view.selected;
-        const p = s && frame?.players.find((q) => q.side === s.side && q.unum === s.unum);
-        // Without a selected, connected player, the broadcast view.
-        return p && isAlive(p) ? playerPose(p, aspect) : broadcastPose(aspect, ball);
-      }
       default:
         return broadcastPose(aspect, ball);
     }
@@ -657,6 +740,32 @@ export class Render3D implements FieldRenderer {
     }
   }
 
+  /**
+   * What the player camera's player perceives (sight.ts), decided on the
+   * frame of the cycle, not between frames. Everything for the other cameras.
+   */
+  private updateSight(scene: SceneSnapshot | null, view: ViewState, sp: ServerParam): void {
+    this.perceptions = null;
+    this.ballPerceived = true;
+    const sight = this.playerCameraOptions.sight;
+    if (!scene || this.mode !== 'player' || sight === 'all') {
+      return;
+    }
+    const observer = selectedPlayer(scene.frame, view);
+    if (!observer) {
+      return;
+    }
+    const type = scene.store.playerType(observer.type);
+    const list = new Array<Perception | undefined>(PLAYERS);
+    for (const p of scene.frame.players) {
+      if (isAlive(p)) {
+        list[index(p)] = p === observer ? FULL : perceivePlayer(sight, observer, p, type, sp);
+      }
+    }
+    this.perceptions = list;
+    this.ballPerceived = perceiveBall(sight, observer, scene.frame.ball, type, sp);
+  }
+
   private updatePlayers(
     frame: Frame | null,
     store: GameStore | null,
@@ -668,26 +777,42 @@ export class Render3D implements FieldRenderer {
     const o = this.o;
     const color = this.color;
     let n = 0;
+    let facings = 0;
     let rings = 0;
     let decays = 0;
     let cards = 0;
-    const shown = new Set<number>();
-    // The player camera sees with the selected player's eyes, not its own head.
-    const self = this.mode === 'player' ? view.selected : null;
+    let unknownTeams = 0;
+    /** The numbers to draw and their opacity. */
+    const numbered = new Map<number, number>();
+    const carded = new Set<number>();
+    // At the eyes, the player camera does not see its own head.
+    const self =
+      this.mode === 'player' && this.playerCameraOptions.position === 'eye' ? view.selected : null;
     for (const p of players) {
       const type = store?.playerType(p.type);
       if (!type || (self && p.side === self.side && p.unum === self.unum)) {
         continue;
       }
+      const i = index(p);
+      const seen = this.perceptions ? this.perceptions[i] : FULL;
+      if (!seen?.seen) {
+        continue;
+      }
+      // Only felt (outside the view, near), or too far to tell the team.
+      const known = seen.team > 0;
+      if (seen.team < 1) {
+        ++unknownTeams;
+      }
       const size = playerSize(view.options, sp, type);
       const selected = view.isSelected(p.side, p.unum);
       const style = playerStyle(view.colors, view.options, sp, type, p, selected);
+      const teamColor = (c: string) => color.set(c).lerp(this.unknownTeam, 1 - seen.team);
 
       o.rotation.set(0, 0, 0);
       o.position.set(p.x, BODY_HEIGHT / 2, p.y);
       o.scale.set(size.body, BODY_HEIGHT, size.body);
       o.updateMatrix();
-      color.set(style.body);
+      teamColor(style.body);
       this.bodies.setMatrixAt(n, o.matrix);
       this.bodies.setColorAt(n, color);
 
@@ -701,11 +826,11 @@ export class Render3D implements FieldRenderer {
       o.position.set(p.x, 0.02, p.y);
       o.scale.set(size.ground, 1, size.ground);
       o.updateMatrix();
-      color.set(style.brush);
+      teamColor(style.brush);
       this.discs.setMatrixAt(n, o.matrix);
       this.discs.setColorAt(n, color);
       // Its outline when highlighted (kick, tackle, illegal defense, selected).
-      if (style.pen.width >= 2) {
+      if (known && style.pen.width >= 2) {
         o.position.y = 0.03;
         o.updateMatrix();
         color.set(style.pen.color);
@@ -713,7 +838,7 @@ export class Render3D implements FieldRenderer {
         this.rings.setColorAt(rings, color);
         ++rings;
       }
-      if (style.decay) {
+      if (known && style.decay) {
         o.position.y = 0.03;
         o.updateMatrix();
         color.set(style.decay);
@@ -722,27 +847,31 @@ export class Render3D implements FieldRenderer {
         ++decays;
       }
 
-      o.scale.set(1, 1, 1);
-      o.position.set(p.x, BODY_HEIGHT * 0.7, p.y);
-      o.rotation.set(0, yaw(p.body), 0);
-      o.translateX(size.body * 0.8);
-      o.updateMatrix();
-      this.noses.setMatrixAt(n, o.matrix);
+      if (seen.facing) {
+        o.scale.set(1, 1, 1);
+        o.position.set(p.x, BODY_HEIGHT * 0.7, p.y);
+        o.rotation.set(0, yaw(p.body), 0);
+        o.translateX(size.body * 0.8);
+        o.updateMatrix();
+        this.noses.setMatrixAt(facings, o.matrix);
 
-      o.position.set(p.x, HEAD_HEIGHT, p.y);
-      o.rotation.set(0, yaw(headDirection(p)), 0);
-      o.translateX(HEAD_RADIUS * 0.8);
-      o.updateMatrix();
-      this.faces.setMatrixAt(n, o.matrix);
+        o.position.set(p.x, HEAD_HEIGHT, p.y);
+        o.rotation.set(0, yaw(headDirection(p)), 0);
+        o.translateX(HEAD_RADIUS * 0.8);
+        o.updateMatrix();
+        this.faces.setMatrixAt(facings, o.matrix);
+        ++facings;
+      }
 
-      const i = index(p);
-      shown.add(i);
-      this.numbers[i]?.position.set(p.x, NUMBER_HEIGHT, p.y);
+      if (seen.unum > 0) {
+        numbered.set(i, seen.unum);
+        this.numbers[i]?.position.set(p.x, NUMBER_HEIGHT, p.y);
+      }
       const card = this.cards[i];
-      if (card) {
+      if (card && known) {
         const red = hasRedCard(p);
-        card.visible = view.options.showCard && (red || hasYellowCard(p));
-        if (card.visible) {
+        if (view.options.showCard && (red || hasYellowCard(p))) {
+          carded.add(i);
           card.position.set(p.x, NUMBER_HEIGHT, p.y);
           card.material.color.set(red ? '#ff0000' : '#ffff00');
           ++cards;
@@ -757,20 +886,39 @@ export class Render3D implements FieldRenderer {
         mesh.instanceColor.needsUpdate = true;
       }
     };
-    for (const mesh of [this.bodies, this.heads, this.discs, this.noses, this.faces]) {
+    for (const mesh of [this.bodies, this.heads, this.discs]) {
       done(mesh, n);
     }
+    done(this.noses, facings);
+    done(this.faces, facings);
     done(this.rings, rings);
     done(this.decayRings, decays);
     this.noseMaterial.color.set(view.colors.playerPen);
     this.faceMaterial.color.set(view.colors.neck);
+    let numbers = 0;
+    let fadingNumbers = 0;
     this.numbers.forEach((s, i) => {
-      s.visible = view.options.showPlayerNumber && shown.has(i);
+      const opacity = numbered.get(i) ?? 0;
+      s.visible = view.options.showPlayerNumber && opacity > 0;
+      s.material.opacity = opacity;
+      if (s.visible) {
+        ++numbers;
+        fadingNumbers += opacity < 1 ? 1 : 0;
+      }
     });
     this.cards.forEach((c, i) => {
-      c.visible &&= shown.has(i);
+      c.visible = carded.has(i);
     });
-    this.counts = { ...this.counts, players: n, rings, cards };
+    this.counts = {
+      ...this.counts,
+      players: n,
+      numbers,
+      fadingNumbers,
+      facings,
+      unknownTeams,
+      rings,
+      cards,
+    };
   }
 
   /** The view areas (V): every player's within the visible distance, the selected player's to 60 m. */
@@ -787,7 +935,8 @@ export class Render3D implements FieldRenderer {
       return;
     }
     for (const p of frame.players) {
-      if (!isAlive(p)) {
+      // With the player camera's sight, only the players whose face direction it knows.
+      if (!isAlive(p) || (this.perceptions && !this.perceptions[index(p)]?.facing)) {
         continue;
       }
       const head = yaw(headDirection(p));
@@ -818,7 +967,7 @@ export class Render3D implements FieldRenderer {
 
   private updateBall(frame: Frame | null, view: ViewState, sp: ServerParam): void {
     const ball = frame?.ball;
-    const shown = ball !== undefined && view.options.showBall;
+    const shown = ball !== undefined && view.options.showBall && this.ballPerceived;
     this.ball.visible = shown;
     this.shadow.visible = shown;
     if (!ball || !shown) {

@@ -14,10 +14,14 @@ interface Renderer {
     ball: { visible: boolean; x: number; y: number; z: number };
     shadow: { visible: boolean; x: number; y: number; z: number };
     players: number;
+    numbers: number;
+    fadingNumbers: number;
+    facings: number;
+    unknownTeams: number;
     rings: number;
     cards: number;
     viewAreas: number;
-    camera: { mode: string; position: { x: number; y: number; z: number } };
+    camera: { mode: string; position: { x: number; y: number; z: number }; fov: number };
     frameIndex: number;
     drawCalls: number;
   };
@@ -55,6 +59,49 @@ const FLYING_BALL = [
   '[',
   '{"show":{"time":1,"ball":{"x":10,"y":-5,"vx":0.5,"vy":0,"z":3,"vz":0.2},"players":[]}},',
   '{"show":{"time":2,"ball":{"x":10.5,"y":-5,"vx":0.5,"vy":0},"players":[]}}',
+  ']',
+  '',
+].join('\n');
+
+/**
+ * A JSON log for the player camera's sight: the left 1 at the center looks
+ * along +x, 90 degrees wide; the others are near, far, in and out of view.
+ */
+const SIGHT_PLAYERS: [string, number, number, number][] = [
+  ['l', 1, 0, 0], // the one who sees
+  ['l', 2, 10, 0], // in view, near: everything
+  ['l', 3, 30, 5], // in view, 30 m: the number half known
+  ['r', 1, 45, 0], // in view, 45 m: no number, no directions
+  ['r', 2, -2, 0], // behind, 2 m: felt
+  ['r', 3, -10, 0], // behind, 10 m: not seen
+  ['r', 4, 5, 20], // aside: not seen
+];
+const SIGHT = [
+  '[',
+  [1, 2]
+    .map((time) =>
+      JSON.stringify({
+        show: {
+          time,
+          ball: { x: -1, y: 1, vx: 0, vy: 0 }, // behind, near: felt
+          players: SIGHT_PLAYERS.map(([side, unum, x, y]) => ({
+            side,
+            unum,
+            type: 0,
+            state: 1,
+            x,
+            y,
+            body: 0,
+            neck: 0,
+            vw: 90,
+            stamina: 8000,
+            effort: 1,
+            recovery: 1,
+          })),
+        },
+      }),
+    )
+    .join(',\n'), // one record a line, as the server writes
   ']',
   '',
 ].join('\n');
@@ -251,4 +298,138 @@ test('shows a live game one cycle behind, to move smoothly', async ({ page }) =>
   } finally {
     await server.close();
   }
+});
+
+test('chooses the player camera styles in the preference dialog', async ({ page }) => {
+  await openApp(page, '?view_3d=on&camera_3d=player');
+  await wait3d(page);
+  await page.setInputFiles('#rcg-file', {
+    name: 'sight.rcg',
+    mimeType: 'application/json',
+    buffer: Buffer.from(SIGHT),
+  });
+  await expect(page.locator('#load-result')).toContainText('2 frames');
+  await hook(page, (h) => {
+    h.view.selectPlayer(1);
+  });
+  const camera = async () => (await scene(page))?.camera;
+  // The plain camera: at the eyes, the view width (90) as the field of view.
+  await expect.poll(async () => (await camera())?.position).toEqual({ x: 0, y: 1.65, z: 0 });
+
+  await page.keyboard.press('Control+v');
+  await page.locator('#config-tab-3d').click();
+  await expect(page.locator('#config-player-camera-position-eye')).toBeChecked();
+  // The note below a row describes the chosen style; every style has a tooltip.
+  const positionHint = page.locator('#config-player-camera-position-hint');
+  await expect(positionHint).toContainText('At the eyes, 1.65 m high');
+  await expect(page.locator('label:has(#config-player-camera-motion-smooth)')).toHaveAttribute(
+    'title',
+    /at most ω·Δt/,
+  );
+  await expect(page.locator('label[for="config-player-camera-max-turn"]')).toHaveAttribute(
+    'title',
+    /fastest/,
+  );
+  await page.locator('#config-player-camera-position-shoulder').check();
+  await expect(positionHint).toContainText('6 m behind the player');
+  await expect.poll(async () => (await camera())?.position.y).toBe(3);
+  const p = await camera();
+  expect(p?.position.x).toBeCloseTo(-6); // behind
+  expect(p?.position.z).toBeCloseTo(0);
+  // Over the shoulder, the player is drawn too (and the 15 not connected, in black).
+  expect((await scene(page))?.players).toBe(22);
+
+  await page.locator('#config-player-camera-fov-fixed').check();
+  await page.locator('#config-player-camera-fixed-fov').fill('60');
+  await page.locator('#config-player-camera-fixed-fov').press('Enter');
+  // Horizontal 60 degrees: the vertical one depends on the shape of the canvas.
+  const aspect = await hook(page, (h) => {
+    const c = h.field.renderer.canvas;
+    return c.clientWidth / c.clientHeight;
+  });
+  const vertical = 2 * Math.atan(Math.tan(Math.PI / 6) / aspect) * (180 / Math.PI);
+  await expect.poll(async () => (await camera())?.fov).toBeCloseTo(vertical, 3);
+
+  // Kept, and the default is the plain camera again.
+  await page.reload();
+  await wait3d(page);
+  await page.keyboard.press('Control+v');
+  await page.locator('#config-tab-3d').click();
+  await expect(page.locator('#config-player-camera-position-shoulder')).toBeChecked();
+  await expect(page.locator('#config-player-camera-fixed-fov')).toHaveValue('60');
+  await expect(positionHint).toContainText('6 m behind the player');
+  await expect(page.locator('#config-player-camera-default')).toHaveAttribute(
+    'title',
+    /Eyes, Head \(Body \+ Neck\), Instant, View Width, Everything, τ 0\.5 s, ω 90°\/s, Fixed 90°/,
+  );
+  await page.locator('#config-player-camera-default').click();
+  await expect(page.locator('#config-player-camera-position-eye')).toBeChecked();
+  await expect(page.locator('#config-player-camera-fov-view')).toBeChecked();
+  await expect(positionHint).toContainText('At the eyes');
+});
+
+test("draws only what the player camera's player perceives", async ({ page }) => {
+  await openApp(page, '?view_3d=on&camera_3d=player&player_camera_sight=server');
+  await wait3d(page);
+  await page.setInputFiles('#rcg-file', {
+    name: 'sight.rcg',
+    mimeType: 'application/json',
+    buffer: Buffer.from(SIGHT),
+  });
+  await expect(page.locator('#load-result')).toContainText('2 frames');
+  await hook(page, (h) => {
+    h.view.selectPlayer(1);
+  });
+  const seen = async () => {
+    const s = await scene(page);
+    return (
+      s && {
+        players: s.players,
+        numbers: s.numbers,
+        fadingNumbers: s.fadingNumbers,
+        facings: s.facings,
+        unknownTeams: s.unknownTeams,
+        ball: s.ball.visible,
+      }
+    );
+  };
+  // Server rules, at the eyes (the player itself is not drawn): the left 2,
+  // 3, the right 1 in view, the right 2 felt in gray; the ball felt.
+  await expect.poll(seen).toEqual({
+    players: 4,
+    numbers: 2,
+    fadingNumbers: 1,
+    facings: 2,
+    unknownTeams: 1,
+    ball: true,
+  });
+
+  await page.keyboard.press('Control+v');
+  await page.locator('#config-tab-3d').click();
+  await expect(page.locator('#config-player-camera-sight-server')).toBeChecked();
+  await page.locator('#config-player-camera-sight-view').check();
+  await expect.poll(seen).toEqual({
+    players: 3,
+    numbers: 3,
+    fadingNumbers: 0,
+    facings: 3,
+    unknownTeams: 0,
+    ball: false,
+  });
+
+  // Everything, also the 15 not connected (in black); the player itself not.
+  await page.locator('#config-player-camera-sight-all').check();
+  await expect.poll(seen).toEqual({
+    players: 21,
+    numbers: 21,
+    fadingNumbers: 0,
+    facings: 21,
+    unknownTeams: 0,
+    ball: true,
+  });
+
+  // Only for the player camera.
+  await page.locator('#config-player-camera-sight-view').check();
+  await page.locator('#camera-select').selectOption('broadcast');
+  await expect.poll(async () => (await seen())?.players).toBe(22);
 });

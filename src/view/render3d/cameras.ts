@@ -3,9 +3,9 @@
 //
 // Cameras that follow the ball follow where it is on the ground, so that a
 // ball in the air (the planned 2.5D simulator) does not shake the picture.
+// The selected player's camera is in player-camera.ts.
 import { PITCH } from '../../core/constants';
-import type { PlayerState } from '../../core/frame';
-import { DEG2RAD, RAD2DEG } from '../../core/geometry';
+import { DEG2RAD } from '../../core/geometry';
 import { CAMERA_ELEVATION, fitCameraPosition, TEXTURE_AREA, type World } from './scene-math';
 
 export const CAMERA_MODES = [
@@ -72,25 +72,6 @@ export function goalPose(side: -1 | 1, ball: { x: number; y: number }): CameraPo
       z: clamp(ball.y, -PITCH.width / 2, PITCH.width / 2) * 0.6,
     },
     fov: 45,
-  };
-}
-
-/** The eye height of the player camera. */
-export const EYE_HEIGHT = 1.65;
-
-/**
- * The player's eyes, looking where the face turns (body + neck), with the
- * view width as the horizontal field of view (60, 120 or 180 degrees; more
- * than 120 would distort too much).
- */
-export function playerPose(player: PlayerState, aspect: number): CameraPose {
-  const dir = (player.body + player.neck) * DEG2RAD;
-  const horizontal = clamp(player.viewWidth || 90, 40, 120) * DEG2RAD;
-  const vertical = 2 * Math.atan(Math.tan(horizontal / 2) / Math.max(0.1, aspect));
-  return {
-    position: { x: player.x, y: EYE_HEIGHT, z: player.y },
-    target: { x: player.x + 10 * Math.cos(dir), y: 1.0, z: player.y + 10 * Math.sin(dir) },
-    fov: vertical * RAD2DEG,
   };
 }
 

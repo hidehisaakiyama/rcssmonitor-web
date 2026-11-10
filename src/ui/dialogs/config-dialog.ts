@@ -1,13 +1,21 @@
 // The view configuration (rcssmonitor src/config_dialog.cpp) with the same
-// tabs: Show, Canvas, Color and Font. Changes apply at once. The controls
-// follow the view while open, e.g. when a key toggles an option.
+// tabs: Show, Canvas, Color and Font, and a 3D tab for the selected player's
+// camera of the 3D view (not in rcssmonitor; each item has a tooltip and a
+// note). Changes apply at once. The controls follow the view while open, e.g.
+// when a key toggles an option.
 //
 // Left out: Anti Aliasing (the canvas always smooths) and Draw Info (only in
 // binary v1 logs). The Color tab lists all 35 colors of the settings file;
 // rcssmonitor's dialog lists 30.
 import { MAX_PLAYER, Side } from '../../core/constants';
-import { pixelsToPoints, pointsToPixels, type AppSettings } from '../../options/settings';
+import {
+  pixelsToPoints,
+  pointsToPixels,
+  resetPlayerCamera,
+  type AppSettings,
+} from '../../options/settings';
 import { DEFAULT_FONTS, DEFAULT_PALETTE, type Fonts, type Palette } from '../../view/palette';
+import { DEFAULT_PLAYER_CAMERA } from '../../view/render3d/player-camera';
 import {
   MAX_FIELD_SCALE,
   MIN_FIELD_SCALE,
@@ -24,6 +32,8 @@ export interface ConfigHost {
   readonly app: AppSettings;
   /** Applies app.canvasWidth / canvasHeight. */
   applyCanvasSize(): void;
+  /** Applies the app.playerCamera... settings. */
+  applyPlayerCamera(): void;
 }
 
 const SHOW: [BooleanOption, string][] = [
@@ -108,6 +118,8 @@ const FAMILIES = [
 ];
 
 type Refresh = () => void;
+/** A radio choice: [setting value, label, tooltip]. */
+type Choice<T extends string> = readonly [T, string, string?];
 
 export class ConfigDialog {
   readonly panel: Panel;
@@ -152,6 +164,7 @@ export class ConfigDialog {
       ['Canvas', this.canvasTab()],
       ['Color', this.colorTab()],
       ['Font', this.fontTab()],
+      ['3D', this.view3dTab()],
     ];
     const bar = el('div', 'tab-bar');
     bar.setAttribute('role', 'tablist');
@@ -214,15 +227,19 @@ export class ConfigDialog {
     return wrap;
   }
 
+  /** Radio buttons for [value, label, tooltip] choices. */
   private radio<T extends string>(
     name: string,
-    choices: [T, string][],
+    choices: readonly Choice<T>[],
     get: () => T,
     set: (v: T) => void,
   ): HTMLElement {
     const r = this.row();
-    for (const [value, label] of choices) {
+    for (const [value, label, tooltip] of choices) {
       const wrap = el('label', 'config-check');
+      if (tooltip) {
+        wrap.title = tooltip;
+      }
       const input = el('input');
       input.type = 'radio';
       input.name = name;
@@ -614,6 +631,183 @@ export class ConfigDialog {
     return page;
   }
 
+  // ---- 3D
+
+  /**
+   * The selected player's camera of the 3D view, in the styles to compare.
+   * Every item has a tooltip, and the chosen style is described below its row.
+   */
+  private view3dTab(): HTMLElement {
+    const page = el('div');
+    const app = this.host.app;
+    const apply = () => this.host.applyPlayerCamera();
+    const note = (text: string) => el('p', 'panel-note config-hint', text);
+    const name = (label: string, tooltip: string) => {
+      const l = el('label', 'config-label', label);
+      l.title = tooltip;
+      return l;
+    };
+    /** A row of choices, with the chosen one's description below it. */
+    const choice = <T extends string>(
+      item: string,
+      label: string,
+      tooltip: string,
+      choices: readonly Choice<T>[],
+      get: () => T,
+      set: (v: T) => void,
+    ): HTMLElement[] => {
+      const hint = note('');
+      hint.id = `config-player-camera-${item}-hint`;
+      const describe = () => {
+        hint.textContent = choices.find(([v]) => v === get())?.[2] ?? '';
+      };
+      this.refreshers.push(describe);
+      const row = this.radio(`config-player-camera-${item}`, choices, get, (v) => {
+        set(v);
+        apply();
+        describe();
+      });
+      if (label) {
+        row.prepend(name(label, tooltip));
+      }
+      return [row, hint];
+    };
+    const number = (
+      item: string,
+      label: string,
+      tooltip: string,
+      get: () => number,
+      set: (v: number) => void,
+      range: { min: number; max: number; step: number },
+    ): HTMLElement[] => {
+      const input = this.number(
+        `config-player-camera-${item}`,
+        get,
+        (v) => {
+          set(v);
+          apply();
+        },
+        range,
+      );
+      input.title = tooltip;
+      const l = name(label, tooltip);
+      l.htmlFor = input.id;
+      return [l, input];
+    };
+    page.append(
+      this.group(
+        'Player Camera',
+        note(CAMERA_NOTE),
+        ...choice(
+          'position',
+          'Position:',
+          'Where the camera is, along the camera direction',
+          POSITIONS,
+          () => app.playerCameraPosition,
+          (v) => {
+            app.playerCameraPosition = v;
+          },
+        ),
+        ...choice(
+          'direction',
+          'Direction:',
+          'The goal direction that the camera turns to',
+          DIRECTIONS,
+          () => app.playerCameraDirection,
+          (v) => {
+            app.playerCameraDirection = v;
+          },
+        ),
+        ...choice(
+          'motion',
+          'Motion:',
+          'How the camera turns to the goal direction',
+          MOTIONS,
+          () => app.playerCameraMotion,
+          (v) => {
+            app.playerCameraMotion = v;
+          },
+        ),
+        ...choice(
+          'fov',
+          'Field of View:',
+          'The horizontal field of view h. The vertical one follows the shape of the canvas: ' +
+            '2·atan(tan(h / 2) / (width / height)).',
+          FOVS,
+          () => app.playerCameraFov,
+          (v) => {
+            app.playerCameraFov = v;
+          },
+        ),
+        this.row(
+          ...number(
+            'time-constant',
+            'Time Constant τ (s):',
+            'τ of Smooth and Eased: after τ seconds, about 37% (1/e) of the difference is left ' +
+              '(while Smooth turns slower than ω). With 0, Smooth turns at ω only and Eased ' +
+              'follows at once.',
+            () => app.playerCameraTimeConstant,
+            (v) => {
+              app.playerCameraTimeConstant = v;
+            },
+            { min: 0, max: 5, step: 0.05 },
+          ),
+          ...number(
+            'max-turn',
+            'Max Turn ω (°/s):',
+            'ω of Smooth: the fastest the camera turns, in degrees per second.',
+            () => app.playerCameraMaxTurn,
+            (v) => {
+              app.playerCameraMaxTurn = v;
+            },
+            { min: 1, max: 3600, step: 1 },
+          ),
+        ),
+        this.row(
+          ...number(
+            'fixed-fov',
+            'Fixed Field of View (°):',
+            'The horizontal field of view of Fixed, in degrees.',
+            () => app.playerCameraFixedFov,
+            (v) => {
+              app.playerCameraFixedFov = v;
+            },
+            { min: 20, max: 120, step: 1 },
+          ),
+        ),
+        note(NUMBERS_NOTE),
+        note(SNAP_NOTE),
+      ),
+      this.group(
+        'Player Sight',
+        ...choice(
+          'sight',
+          '',
+          '',
+          SIGHTS,
+          () => app.playerCameraSight,
+          (v) => {
+            app.playerCameraSight = v;
+          },
+        ),
+        note(SIGHT_NOTE),
+      ),
+      this.row(
+        this.button(
+          'Default',
+          'config-player-camera-default',
+          () => {
+            resetPlayerCamera(app);
+            apply();
+            this.refresh();
+          },
+          `Set the first, plain player camera: ${defaultPlayerCamera()}`,
+        ),
+      ),
+    );
+    return page;
+  }
+
   // ---- Font
 
   private fontTab(): HTMLElement {
@@ -686,6 +880,120 @@ export class ConfigDialog {
     );
     return page;
   }
+}
+
+// The player camera's choices and notes. The descriptions are the tooltips and,
+// for the chosen one, the note below the row (render3d/player-camera.ts and
+// sight.ts compute them).
+const POSITIONS: Choice<AppSettings['playerCameraPosition']>[] = [
+  [
+    'eye',
+    'Eyes',
+    'At the eyes, 1.65 m high, looking at the point 10 m ahead and 1 m high. ' +
+      'The player itself is not drawn.',
+  ],
+  [
+    'shoulder',
+    'Over the Shoulder',
+    '6 m behind the player and 3 m high, looking at the point 15 m ahead and 1 m high.',
+  ],
+];
+const DIRECTIONS: Choice<AppSettings['playerCameraDirection']>[] = [
+  [
+    'head',
+    'Head (Body + Neck)',
+    'The goal is the face direction, body + neck: the center of the view cone.',
+  ],
+  ['body', 'Body', 'The goal is the body direction: the camera does not follow the neck.'],
+  [
+    'middle',
+    'Between (Body + Neck / 2)',
+    'The goal is halfway between the body and the face: body + neck / 2.',
+  ],
+];
+const MOTIONS: Choice<AppSettings['playerCameraMotion']>[] = [
+  ['instant', 'Instant', 'The camera takes the goal direction at every frame.'],
+  [
+    'smooth',
+    'Smooth',
+    'Each frame, the camera turns by e·(1 − exp(−Δt / τ)), but at most ω·Δt: e is the angle ' +
+      'left to the goal and Δt the time since the last frame (up to 0.1 s). So it turns at ω ' +
+      'while e is over about ω·τ, and then slows down.',
+  ],
+];
+const FOVS: Choice<AppSettings['playerCameraFov']>[] = [
+  [
+    'view',
+    'View Width',
+    "The player's view width, within 40°–120°: the wide 180° is shown as 120°, " +
+      'an unknown width as 90°.',
+  ],
+  [
+    'eased',
+    'Eased to the View Width',
+    'Each frame, the field of view moves (1 − exp(−Δt / τ)) of the way to the view width ' +
+      '(as View Width; not limited by ω).',
+  ],
+  ['fixed', 'Fixed', 'Always Fixed Field of View below, whatever the view width.'],
+];
+const SIGHTS: Choice<AppSettings['playerCameraSight']>[] = [
+  [
+    'all',
+    'Everything',
+    'Everything, as the other cameras draw it (the players not connected in black).',
+  ],
+  [
+    'view',
+    'View Cone',
+    'Only the players and the ball in the view cone, at any distance: ' +
+      '|the angle from the face direction| < the view width / 2.',
+  ],
+  [
+    'server',
+    'Server Rules',
+    'As rcssserver tells the player. In the cone, the players up to ' +
+      'player_max_observation_length (by default the diagonal of the pitch): the number has ' +
+      'the opacity 1 − (d − unum_far_length) / (unum_too_far_length − unum_far_length) ' +
+      'within 0–1, by default 1 under 20 m and 0 from 40 m, and without it the direction ' +
+      'marks and the view area are not drawn. The team colors fade to gray in the same way ' +
+      'by team_far_length and team_too_far_length. Outside the cone, the players within ' +
+      'visible_distance (3 m) are drawn in gray only. The ball is drawn in the cone up to ' +
+      'ball_max_observation_length, or within visible_distance.',
+  ],
+];
+
+const CAMERA_NOTE =
+  "The 3D view's Player camera, at the selected player. Each frame, Direction gives the " +
+  'goal, Motion turns the camera toward it, Field of View sets the width, and Position ' +
+  'places the camera by the turned direction. Point at an item for more.';
+const NUMBERS_NOTE =
+  'τ is for Smooth and Eased, ω for Smooth, and Fixed Field of View for Fixed. ' +
+  'A number applies with Enter or on leaving the field.';
+const SNAP_NOTE =
+  'The camera takes the goal at once, without Smooth or Eased, when another player is ' +
+  'selected, the player moves over 3 m in a frame (e.g. by a move), the 3D camera ' +
+  'changes or an option here changes.';
+const SIGHT_NOTE =
+  'Only for the Player camera with a connected player selected. Decided by the face ' +
+  "direction and the view width in the log at the shown cycle, not by the camera's " +
+  'direction. Unlike the server, the true distance is used every cycle, and the chances ' +
+  'show as opacity and gray.';
+
+/** The default choices, for the Default button's tooltip. */
+function defaultPlayerCamera(): string {
+  const d = DEFAULT_PLAYER_CAMERA;
+  const label = <T extends string>(choices: readonly Choice<T>[], v: T) =>
+    choices.find(([c]) => c === v)?.[1] ?? v;
+  return [
+    label(POSITIONS, d.position),
+    label(DIRECTIONS, d.direction),
+    label(MOTIONS, d.motion),
+    label(FOVS, d.fov),
+    label(SIGHTS, d.sight),
+    `τ ${d.timeConstant} s`,
+    `ω ${d.maxTurn}°/s`,
+    `Fixed ${d.fixedFov}°`,
+  ].join(', ');
 }
 
 /** Up to 3 decimals, as rcssmonitor shows the scale and the sizes. */

@@ -10,7 +10,6 @@ import {
   CAMERA_MODES,
   goalPose,
   nextCameraMode,
-  playerPose,
   smoothToward,
   topHalfSize,
 } from '../../src/view/render3d/cameras';
@@ -88,15 +87,6 @@ describe('3D cameras', () => {
     const g = goalPose(-1, { x: 0, y: 0 });
     expect(g.position.x).toBeLessThan(-PITCH.length / 2);
     expect(g.target.x).toBeLessThan(0);
-  });
-
-  it('see with the player eyes, as wide as the view', () => {
-    const p = playerPose(alive(0, { x: 3, y: 4, body: 90, neck: 0, viewWidth: 120 }), 1);
-    expect(p.position).toEqual({ x: 3, y: 1.65, z: 4 });
-    expect(p.target.x).toBeCloseTo(3);
-    expect(p.target.z).toBeCloseTo(14); // body 90: toward +y, world +Z
-    expect(p.fov).toBeCloseTo(120); // aspect 1: vertical = horizontal
-    expect(playerPose(alive(0, { viewWidth: 180 }), 1).fov).toBeCloseTo(120); // capped
   });
 
   it('fit the pitch from above and settle smoothly', () => {
