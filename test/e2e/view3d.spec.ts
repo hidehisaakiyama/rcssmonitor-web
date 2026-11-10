@@ -782,29 +782,44 @@ test('sends the referee commands aimed in 3D', async ({ page }) => {
     await expect(page.locator('#menu-yellow-card')).toBeEnabled();
     await page.keyboard.press('Escape');
 
-    // On the head of the player nearest to the camera (nothing in front of
-    // it): the card dialog chooses it.
+    // On the head of the nearest player to the camera of those whose head
+    // is on the canvas (nothing in front of it): the card dialog chooses it.
+    // Which frame it stays on depends on how many had arrived, and the
+    // nearest of all may be below the canvas.
     const nearest = await page.evaluate(() => {
       const h = window.rcssmonitorWeb as {
         field: {
+          element: HTMLElement;
           frameIndex: number;
           gameStore: {
             frame(i: number): {
               players: { side: number; unum: number; x: number; y: number; state: number }[];
             };
           } | null;
-          renderer: { inspect(): { camera: { position: { x: number; y: number; z: number } } } };
+          renderer: {
+            fieldToScreen(x: number, y: number, height: number): { x: number; y: number } | null;
+            inspect(): { camera: { position: { x: number; y: number; z: number } } };
+          };
         };
       };
+      const r = h.field.element.getBoundingClientRect();
       const c = h.field.renderer.inspect().camera.position;
       const players = h.field.gameStore?.frame(h.field.frameIndex).players ?? [];
-      const alive = players.filter((p) => p.state !== 0);
-      alive.sort((a, b) => Math.hypot(a.x - c.x, a.y - c.z) - Math.hypot(b.x - c.x, b.y - c.z));
-      const p = alive[0];
+      const inView = players
+        .filter((p) => p.state !== 0)
+        .map((p) => ({ p, s: h.field.renderer.fieldToScreen(p.x, p.y, 1.65) }))
+        .filter(
+          ({ s }) =>
+            s !== null && s.x > 20 && s.y > 20 && s.x < r.width - 20 && s.y < r.height - 20,
+        );
+      inView.sort(
+        (a, b) => Math.hypot(a.p.x - c.x, a.p.y - c.z) - Math.hypot(b.p.x - c.x, b.p.y - c.z),
+      );
+      const p = inView[0]?.p;
       return p && { side: p.side, unum: p.unum, x: p.x, y: p.y };
     });
     if (!nearest) {
-      throw new Error('no player');
+      throw new Error('no player in view');
     }
     const head = await windowOf(page, nearest.x, nearest.y, 1.65);
     if (!head) {
