@@ -93,13 +93,20 @@ import type { ViewState } from '../view-state';
 import {
   broadcastPose,
   CAMERA_FOV,
+  CLOSEUP_PLAYER_HEIGHT,
+  CLOSEUP_RANGE,
+  closeupPose,
+  closeupTimeConstant,
+  DEFAULT_CLOSEUP,
   distance,
   goalPose,
+  isCloseup,
   smoothToward,
   topHalfSize,
   viewpointPose,
   type CameraMode,
   type CameraPose,
+  type CloseupOptions,
   type Viewpoint,
 } from './cameras';
 import { fieldTextureKey, paintFieldTexture } from './field-texture';
@@ -168,6 +175,12 @@ const LABEL_FONT = 40;
 const LABEL_GAP = 0.25;
 /** Half the height of the number's text (40 px of the 64 px label). */
 const NUMBER_TEXT_HALF = (LABEL_SCALE * 40) / 64 / 2;
+/**
+ * From the cameras other than the top one, the most a number's text is
+ * high on the screen: times the 2D player font (the Font tab). Nearer
+ * labels keep that size (fitLabels).
+ */
+const LABEL_MAX_FONT = 2;
 const CARD_WIDTH = 0.42;
 
 /** What the end-to-end tests read. */
@@ -211,8 +224,10 @@ export interface Render3DState {
   readonly labels: readonly string[];
   /** Where they are (their centers), by player index; null: not shown. */
   readonly numberPositions: readonly (World | null)[];
-  /** The height of a number label in meters (its text is 40 / 64 of it). */
+  /** The height of a number label in meters (its text is 40 / 64 of it), before fitLabels. */
   readonly numberHeight: number;
+  /** The highest number's text on the screen, in CSS pixels (0: none shown). */
+  readonly largestNumber: number;
   /** The ends in the team colors: the nets (left, right), the boards and the banners. */
   readonly stadium: StadiumState & { readonly nets: readonly string[] };
   /** The frame drawn last (before interpolation), or -1. */
@@ -251,17 +266,23 @@ export class Render3D implements FieldRenderer {
   onInvalidate: (() => void) | null = null;
   /** Called when the camera mode changes by itself (a drag makes it free). */
   onCameraModeChange: ((mode: CameraMode) => void) | null = null;
+  /** Called when the wheel changes the close-up cameras' distance. */
+  onCloseupDistanceChange: ((distance: number) => void) | null = null;
 
   private readonly renderer: WebGLRenderer;
   private readonly scene = new Scene();
   private readonly perspective = new PerspectiveCamera(CAMERA_FOV, 1, 0.1, 2000);
   private readonly ortho = new OrthographicCamera(-1, 1, 1, -1, 1, 1000);
   private controls: OrbitControls | null = null;
+  /** The element the mouse is listened to on, for the close-up cameras' wheel. */
+  private controlled: HTMLElement | null = null;
+  private readonly wheelListener = (e: WheelEvent) => this.closeupWheel(e);
   private readonly disposables: { dispose(): void }[] = [];
   private width = 1;
   private height = 1;
 
   private mode: CameraMode = 'broadcast';
+  private closeup: CloseupOptions = DEFAULT_CLOSEUP;
   private cameraPosition: World = { x: 0, y: 60, z: 100 };
   private cameraTarget: World = { x: 0, y: 0, z: 0 };
   private settled = true;
@@ -303,7 +324,11 @@ export class Render3D implements FieldRenderer {
   private readonly numberKeys: string[] = [];
   /** How many times their size in meters the labels are drawn (labelScaleFor). */
   private labelK = 1;
-  private appliedLabelK = 1;
+  /** As labelK, for each player's labels (fitLabels), by player index. */
+  private readonly labelKs: number[] = [];
+  /** How high each player's head is (m), where its labels shrink toward (fitLabels). */
+  private readonly labelBases: number[] = [];
+  private largestNumber = 0;
   private readonly overlays = new Overlays();
   /** The players as human figures (figures/), or null: the cylinders. */
   private playerModel: PlayerModel = 'simple';
@@ -468,7 +493,10 @@ export class Render3D implements FieldRenderer {
 
   /** Listens to the mouse on the element that holds the canvas (the HUD covers it). */
   attach(element: HTMLElement): void {
-    this.controls?.dispose();
+    this.detach();
+    // Before the controls': with a close-up camera, the wheel is its distance.
+    element.addEventListener('wheel', this.wheelListener, { passive: false });
+    this.controlled = element;
     const c = new OrbitControls(this.perspective, element);
     c.target.set(this.cameraTarget.x, this.cameraTarget.y, this.cameraTarget.z);
     c.maxPolarAngle = Math.PI / 2 - 0.03; // stay above the ground
@@ -496,6 +524,8 @@ export class Render3D implements FieldRenderer {
   detach(): void {
     this.controls?.dispose();
     this.controls = null;
+    this.controlled?.removeEventListener('wheel', this.wheelListener);
+    this.controlled = null;
   }
 
   resize(width: number, height: number, dpr: number): void {
@@ -541,6 +571,7 @@ export class Render3D implements FieldRenderer {
       this.ballPerceived,
     );
     this.updateCamera(frame, view, dt);
+    this.fitLabels(view);
     this.updateBars(view, sp);
     this.renderer.render(this.scene, this.camera);
   }
@@ -669,6 +700,41 @@ export class Render3D implements FieldRenderer {
     this.onInvalidate?.();
   }
 
+  /** How far from what they follow and how high the close-up cameras are; they glide there. */
+  setCloseup(options: CloseupOptions): void {
+    if (
+      options.distance === this.closeup.distance &&
+      options.elevation === this.closeup.elevation
+    ) {
+      return;
+    }
+    this.closeup = { ...options };
+    this.settled = false;
+    this.onInvalidate?.();
+  }
+
+  /**
+   * The wheel over a close-up camera: about 1.1 times as far (or near) a
+   * notch, within the distance's range. Other cameras leave the wheel to the
+   * controls, which make them free.
+   */
+  private closeupWheel(e: WheelEvent): void {
+    if (!isCloseup(this.mode)) {
+      return;
+    }
+    e.preventDefault();
+    const lines = e.deltaMode === WheelEvent.DOM_DELTA_LINE;
+    const pixels =
+      e.deltaMode === WheelEvent.DOM_DELTA_PAGE ? e.deltaY * 400 : e.deltaY * (lines ? 33 : 1);
+    if (pixels === 0) {
+      return;
+    }
+    const { min, max } = CLOSEUP_RANGE.distance;
+    const d = Math.min(max, Math.max(min, this.closeup.distance * Math.exp(pixels * 0.001)));
+    this.setCloseup({ ...this.closeup, distance: d });
+    this.onCloseupDistanceChange?.(d);
+  }
+
   /** The styles of the selected player's camera and what it draws; it starts again at once. */
   setPlayerCamera(options: PlayerCameraOptions): void {
     const o = this.playerCameraOptions;
@@ -761,6 +827,7 @@ export class Render3D implements FieldRenderer {
       labels: this.numbers.map((s, i) => (s.visible ? (this.numberTexts[i] ?? '') : '')),
       numberPositions: this.numbers.map((s) => (s.visible ? world(s.position) : null)),
       numberHeight: LABEL_SCALE * this.labelK,
+      largestNumber: this.largestNumber,
       stadium: {
         ...this.stadium.inspect(),
         nets: this.nets.map((m) => `#${m.color.getHexString()}`),
@@ -787,6 +854,8 @@ export class Render3D implements FieldRenderer {
       return;
     }
     c.enabled = this.mode !== 'top' && this.mode !== 'player';
+    // The close-up cameras take the wheel for their distance (closeupWheel).
+    c.enableZoom = !isCloseup(this.mode);
     if (this.mode === 'free') {
       c.target.set(this.cameraTarget.x, this.cameraTarget.y, this.cameraTarget.z);
       c.update();
@@ -842,12 +911,15 @@ export class Render3D implements FieldRenderer {
       return;
     }
     // Without a selected, connected player, the player camera is the broadcast one.
-    const pose = this.pose(frame, aspect);
-    // These glide after the ball.
+    const pose = this.pose(frame, view, aspect);
+    // These glide after the ball (or the player), the close-up ones closer behind.
     const glide = !this.snap;
     this.snap = false;
-    const position = glide ? smoothToward(this.cameraPosition, pose.position, dt) : pose.position;
-    const target = glide ? smoothToward(this.cameraTarget, pose.target, dt) : pose.target;
+    const tau = isCloseup(this.mode) ? closeupTimeConstant(this.closeup.distance) : undefined;
+    const position = glide
+      ? smoothToward(this.cameraPosition, pose.position, dt, tau)
+      : pose.position;
+    const target = glide ? smoothToward(this.cameraTarget, pose.target, dt, tau) : pose.target;
     this.settled =
       distance(position, pose.position) < SETTLED && distance(target, pose.target) < SETTLED;
     // Once still, exactly where it goes.
@@ -864,13 +936,22 @@ export class Render3D implements FieldRenderer {
     }
   }
 
-  private pose(frame: Frame | null, aspect: number): CameraPose {
+  private pose(frame: Frame | null, view: ViewState, aspect: number): CameraPose {
     const ball = frame?.ball ?? { x: 0, y: 0 };
     switch (this.mode) {
       case 'goal-left':
         return goalPose(-1, ball);
       case 'goal-right':
         return goalPose(1, ball);
+      case 'closeup-player': {
+        // Without a selected, connected player, the ball's.
+        const p = selectedPlayer(frame, view);
+        return p
+          ? closeupPose(p, CLOSEUP_PLAYER_HEIGHT, this.closeup)
+          : closeupPose(ball, 0, this.closeup);
+      }
+      case 'closeup-ball':
+        return closeupPose(ball, 0, this.closeup);
       default:
         return broadcastPose(aspect, ball);
     }
@@ -1104,17 +1185,9 @@ export class Render3D implements FieldRenderer {
       view.options.showPlayer && frame && store ? frame.players : [];
     const o = this.o;
     // The labels' size: from the top camera, the 2D player font's on the screen.
+    // The sprites take it (or their own, nearer the camera) in fitLabels.
     const k = this.labelScaleFor(view);
     this.labelK = k;
-    if (k !== this.appliedLabelK) {
-      this.appliedLabelK = k;
-      for (const s of this.numbers) {
-        s.scale.set((LABEL_SCALE * k * LABEL_WIDTH) / LABEL_HEIGHT, LABEL_SCALE * k, 1);
-      }
-      for (const c of this.cards) {
-        c.scale.set(CARD_WIDTH * k, 0.6 * k, 1);
-      }
-    }
     const color = this.color;
     // Figures, once loaded, but not from above (the cylinders show more
     // there) and not for players whose directions the player camera's
@@ -1244,6 +1317,7 @@ export class Render3D implements FieldRenderer {
         labelHeight,
       );
       this.barAnchors[i] = place.bars;
+      this.labelBases[i] = (HEAD_HEIGHT + HEAD_RADIUS) * s;
       if (shown) {
         const illegal = view.options.showIllegalDefense && isIllegalDefense(p);
         numbered.set(i, { opacity: seen.unum, text, illegal });
@@ -1362,6 +1436,58 @@ export class Render3D implements FieldRenderer {
   }
 
   /**
+   * The size of each player's labels (its number, card and bars), once the
+   * camera has moved. From the top camera, labelScaleFor's for all. From
+   * the others, their size in meters, but at most so large that the
+   * number's text is LABEL_MAX_FONT times the 2D player font high on the
+   * screen: nearer, they shrink toward the head, so that the labels of the
+   * players near the camera (the close-up and player cameras) do not cover
+   * what it looks at.
+   */
+  private fitLabels(view: ViewState): void {
+    const top = this.mode === 'top';
+    const camera = this.perspective;
+    const eye = camera.position;
+    const forward = new Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+    // Pixels per meter, 1 m in front of the camera; per meter from the top camera.
+    const focal = this.height / (2 * Math.tan((camera.fov / 2) * DEG2RAD));
+    const perMeter = this.height / Math.max(1e-6, this.ortho.top - this.ortho.bottom);
+    const text = 2 * NUMBER_TEXT_HALF;
+    const most = LABEL_MAX_FONT * view.fonts.player.size;
+    let largest = 0;
+    for (const p of this.drawnPlayers) {
+      const i = index(p);
+      const a = this.barAnchors[i];
+      if (!a) {
+        continue;
+      }
+      let k = this.labelK;
+      let pixels = text * k * perMeter;
+      if (!top) {
+        const depth =
+          (a.x - eye.x) * forward.x + (a.y - eye.y) * forward.y + (a.z - eye.z) * forward.z;
+        // Behind the camera: not drawn.
+        const full = depth > 0.01 ? (text * focal) / depth : 0;
+        k = full > most ? most / full : 1;
+        pixels = full * k;
+        const base = this.labelBases[i] ?? 0;
+        const at = { x: a.x, y: base + k * (a.y - base), z: a.z };
+        this.barAnchors[i] = at;
+        this.numbers[i]?.position.set(at.x, at.y, at.z);
+        this.cards[i]?.position.set(at.x, at.y, at.z);
+      }
+      this.labelKs[i] = k;
+      const number = this.numbers[i];
+      number?.scale.set((LABEL_SCALE * k * LABEL_WIDTH) / LABEL_HEIGHT, LABEL_SCALE * k, 1);
+      this.cards[i]?.scale.set(CARD_WIDTH * k, 0.6 * k, 1);
+      if (number?.visible) {
+        largest = Math.max(largest, pixels);
+      }
+    }
+    this.largestNumber = largest;
+  }
+
+  /**
    * The stamina bars of the players found by updatePlayers, facing the
    * camera (after it moved): a dark background, and the fill from the left,
    * colored by the stamina (staminaHue); the capacity bar below it. They are
@@ -1378,11 +1504,11 @@ export class Render3D implements FieldRenderer {
     let backs = 0;
     let fills = 0;
     const bars: Render3DState['staminaBars'][number][] = [];
+    // With the number's size (fitLabels).
+    let k = this.labelK;
+    let width = BAR.width;
+    let frame = BAR.frame;
     /** A bar whose top is `from` below the number's center; returns how far below it ends. */
-    // From the top camera, larger with the number (labelScaleFor).
-    const k = this.labelK;
-    const width = BAR.width * k;
-    const frame = BAR.frame * k;
     const bar = (from: number, height: number, rate: number, fill: Color): number => {
       o.quaternion.copy(q);
       o.position.copy(at).addScaledVector(down, from + height / 2);
@@ -1403,8 +1529,11 @@ export class Render3D implements FieldRenderer {
     for (const p of this.barred) {
       const capacity = view.options.showStaminaCapacity ? capacityRate(p, sp) : null;
       const stamina = view.options.showStamina ? staminaRate(p, sp) : null;
-      // Under the number (updatePlayers placed it).
+      // Under the number (updatePlayers placed it, fitLabels sized it).
       const anchor = this.barAnchors[index(p)] ?? { x: p.x, y: NUMBER_HEIGHT + BAR_LIFT, z: p.y };
+      k = this.labelKs[index(p)] ?? this.labelK;
+      width = BAR.width * k;
+      frame = BAR.frame * k;
       at.set(anchor.x, anchor.y, anchor.z);
       let from = (NUMBER_TEXT_HALF + BAR.gap) * k;
       if (stamina !== null) {

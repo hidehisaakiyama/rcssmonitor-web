@@ -13,6 +13,7 @@ import {
 } from '../options/connection';
 import {
   DEFAULT_APP_SETTINGS,
+  closeupOptions,
   playerCameraOptions,
   SettingsStore,
   type AppSettings,
@@ -251,9 +252,10 @@ export class App {
     void this.render3d?.then((r) => this.configure3d(r));
   }
 
-  /** The player camera's styles, the compass and the minimap, the boards and the banners. */
+  /** The close-up and player cameras, the compass and the minimap, the boards and the banners. */
   private configure3d(r: Render3D): void {
     const s = this.settings;
+    r.setCloseup(closeupOptions(s));
     r.setPlayerCamera(playerCameraOptions(s));
     r.setGuides({ compass: s.compass3d, minimap: s.minimap3d });
     r.setStadium({ boards: s.boards3d, banners: s.banners3d });
@@ -292,6 +294,15 @@ export class App {
         this.settings.camera3d = mode;
         this.settingsChanged();
         this.updateToolbar();
+      };
+      // The wheel over a close-up camera: kept as the setting of the 3D tab.
+      r.onCloseupDistanceChange = (distance) => {
+        this.settings.closeupDistance3d = distance;
+        this.settingsChanged();
+        if (this.config.panel.isOpen) {
+          this.config.refresh();
+        }
+        this.status.showMessage(`Close-up distance: ${distance.toFixed(1)} m`, 1500);
       };
       return r;
     });
@@ -359,6 +370,12 @@ export class App {
     if (mode === 'player' && !this.view.selected) {
       this.status.showMessage(
         'Select a player (1-9, 0, - for the left team, with Ctrl for the right) to see with its eyes.',
+        5000,
+      );
+    } else if (mode === 'closeup-player' && !this.view.selected) {
+      this.status.showMessage(
+        'Select a player (1-9, 0, - for the left team, with Ctrl for the right) to follow; ' +
+          'until then, the ball.',
         5000,
       );
     }

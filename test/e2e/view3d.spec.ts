@@ -27,7 +27,12 @@ interface Renderer {
     rings: number;
     cards: number;
     viewAreas: number;
-    camera: { mode: string; position: { x: number; y: number; z: number }; fov: number };
+    camera: {
+      mode: string;
+      position: { x: number; y: number; z: number };
+      target: { x: number; y: number; z: number };
+      fov: number;
+    };
     stadium: {
       sides: { color: string; name: string; logo: boolean }[];
       boards: boolean;
@@ -47,6 +52,7 @@ interface Renderer {
     labels: string[];
     numberPositions: ({ x: number; y: number; z: number } | null)[];
     numberHeight: number;
+    largestNumber: number;
     cylinders: number;
     figures: {
       model: string;
@@ -1247,4 +1253,108 @@ test('jumps to the viewpoints of the whole pitch with I, Ctrl+I and the tool bar
   await page.keyboard.press('Control+I');
   await expect(page.locator('#status-message')).toContainText('for the 3D view');
   expect(await kind(page)).toBe('2d');
+});
+
+/**
+ * 'ok' once the camera looks at `want` (world coordinates, from the same
+ * snapshot) from `distance` m away and `elevation`° above; otherwise what it
+ * does.
+ */
+async function closeUp(
+  page: Page,
+  want: (s: { ball: { x: number; z: number } }) => { x: number; y: number; z: number },
+  distance: number,
+  elevation: number,
+): Promise<string> {
+  const s = await scene(page);
+  if (!s) {
+    return 'no scene';
+  }
+  const c = s.camera;
+  const w = want(s);
+  const d = {
+    x: c.position.x - c.target.x,
+    y: c.position.y - c.target.y,
+    z: c.position.z - c.target.z,
+  };
+  const got = {
+    mode: c.mode,
+    at: c.target,
+    distance: Math.hypot(d.x, d.y, d.z),
+    elevation: (Math.atan2(d.y, Math.hypot(d.x, d.z)) * 180) / Math.PI,
+  };
+  const ok =
+    Math.hypot(c.target.x - w.x, c.target.y - w.y, c.target.z - w.z) < 0.02 &&
+    Math.abs(got.distance - distance) < 0.02 &&
+    Math.abs(got.elevation - elevation) < 0.05 &&
+    d.z > 0;
+  return ok ? 'ok' : JSON.stringify({ ...got, want: w });
+}
+
+test('follows the ball or the selected player close up, the wheel setting the distance', async ({
+  page,
+}) => {
+  await openApp(page, '?view_3d=on&camera_3d=broadcast');
+  await wait3d(page);
+  await loadLog(page, 'json-sample.rcg.gz');
+  const ball = (s: { ball: { x: number; z: number } }) => ({ x: s.ball.x, y: 0, z: s.ball.z });
+
+  // The ball on the ground, 12 m away and 20° above by default, after it.
+  await page.locator('#camera-select').selectOption('closeup-ball');
+  await expect.poll(() => closeUp(page, ball, 12, 20)).toBe('ok');
+  await hook(page, (h) => {
+    h.showFrame(120);
+  });
+  await expect.poll(() => closeUp(page, ball, 12, 20)).toBe('ok');
+
+  // The selected player at 1 m, but the ball until one is selected.
+  await page.locator('#camera-select').selectOption('closeup-player');
+  await expect(page.locator('#status-message')).toContainText('until then, the ball');
+  await expect.poll(() => closeUp(page, ball, 12, 20)).toBe('ok');
+  await page.keyboard.press('5');
+  const p = await hook(page, (h) => {
+    const q = (
+      h.field as unknown as {
+        gameStore: { frame(i: number): { players: { x: number; y: number }[] } };
+      }
+    ).gameStore.frame(h.field.frameIndex).players[4];
+    return { x: q?.x ?? NaN, y: 1, z: q?.y ?? NaN };
+  });
+  await expect.poll(() => closeUp(page, () => p, 12, 20)).toBe('ok');
+  // The numbers there would be 60 px high and more; at most twice the 2D
+  // player font (9 pt: 12 px) on the screen.
+  await expect.poll(async () => (await scene(page))?.largestNumber).toBeCloseTo(24, 1);
+
+  // The wheel: farther, kept as the setting, still the close-up camera.
+  const box = await page.locator('.field-view').boundingBox();
+  if (!box) {
+    throw new Error('no field view');
+  }
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.wheel(0, 100);
+  await expect(page.locator('#status-message')).toContainText('Close-up distance');
+  await expect(page.locator('#camera-select')).toHaveValue('closeup-player');
+  await page.keyboard.press('Control+v');
+  await page.locator('#config-tab-3d').click();
+  const field = page.locator('#config-closeup-distance-3d');
+  await expect.poll(async () => Number(await field.inputValue())).toBeGreaterThan(12.5);
+  const farther = Number(await field.inputValue());
+  await expect.poll(() => closeUp(page, () => p, farther, 20)).toBe('ok');
+  await expect(page.locator('label[for="config-closeup-distance-3d"]')).toHaveAttribute(
+    'title',
+    /Range: 3–60 m/,
+  );
+
+  // The elevation, brought into its range (5–85°).
+  const elevation = page.locator('#config-closeup-elevation-3d');
+  await elevation.fill('90');
+  await elevation.press('Enter');
+  await expect(elevation).toHaveValue('85');
+  await expect.poll(() => closeUp(page, () => p, farther, 85)).toBe('ok');
+
+  // Back to the defaults with the 3D tab's Default.
+  await page.locator('#config-3d-default').click();
+  await expect(field).toHaveValue('12');
+  await expect(elevation).toHaveValue('20');
+  await expect.poll(() => closeUp(page, () => p, 12, 20)).toBe('ok');
 });

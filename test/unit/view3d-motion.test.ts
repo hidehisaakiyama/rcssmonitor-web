@@ -1,14 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import { PITCH, PlayerStateBit, PlayMode } from '../../src/core/constants';
 import { disabledPlayer, type Frame, type PlayerState } from '../../src/core/frame';
+import { DEG2RAD, RAD2DEG } from '../../src/core/geometry';
 import { DEFAULT_PLAYER_TYPE, DEFAULT_SERVER_PARAM } from '../../src/core/params';
-import { applySettings, defaultTargets, settingsFromUrl } from '../../src/options/settings';
+import {
+  applySettings,
+  closeupOptions,
+  defaultTargets,
+  resetView3d,
+  settingsFromUrl,
+} from '../../src/options/settings';
 import { DEFAULT_PALETTE } from '../../src/view/palette';
 import { playerStyle } from '../../src/view/player-style';
 import {
   broadcastPose,
+  CAMERA_FOV,
   CAMERA_MODES,
+  CLOSEUP_PLAYER_HEIGHT,
+  closeupPose,
+  closeupTimeConstant,
+  DEFAULT_CLOSEUP,
   goalPose,
+  isCloseup,
   nextCameraMode,
   smoothToward,
   topHalfSize,
@@ -111,6 +124,68 @@ describe('3D cameras', () => {
     expect(applySettings(t, { camera_3d: 'player' })).toEqual(['camera_3d']);
     expect(applySettings(t, { camera_3d: 'sky' })).toEqual([]);
     expect(t.app.camera3d).toBe('player');
+  });
+});
+
+describe('the close-up cameras', () => {
+  it('come after the broadcast one', () => {
+    expect(nextCameraMode('broadcast')).toBe('closeup-ball');
+    expect(nextCameraMode('closeup-ball')).toBe('closeup-player');
+    expect(nextCameraMode('closeup-player')).toBe('top');
+    expect(CAMERA_MODES.filter(isCloseup)).toEqual(['closeup-ball', 'closeup-player']);
+  });
+
+  it('look at what they follow from the near touch line, the distance and elevation set', () => {
+    for (const o of [DEFAULT_CLOSEUP, { distance: 30, elevation: 60 }]) {
+      for (const height of [0, CLOSEUP_PLAYER_HEIGHT]) {
+        const pose = closeupPose({ x: 20, y: -10 }, height, o);
+        expect(pose.target).toEqual({ x: 20, y: height, z: -10 });
+        const d = {
+          x: pose.position.x - pose.target.x,
+          y: pose.position.y - pose.target.y,
+          z: pose.position.z - pose.target.z,
+        };
+        expect(Math.hypot(d.x, d.y, d.z)).toBeCloseTo(o.distance, 9);
+        expect(Math.atan2(d.y, Math.hypot(d.x, d.z)) * RAD2DEG).toBeCloseTo(o.elevation, 9);
+        // From the near touch line's side (+y, +Z), as the broadcast camera.
+        expect(d.x).toBe(0);
+        expect(d.z).toBeGreaterThan(0);
+        expect(pose.fov).toBe(CAMERA_FOV);
+      }
+    }
+    // Over the ground that is drawn, even when the ball is far out.
+    const out = closeupPose({ x: 100, y: -60 }, 0, DEFAULT_CLOSEUP).target;
+    expect(out.x).toBe(PITCH.length / 2 + PITCH.margin);
+    expect(out.z).toBe(-(PITCH.width / 2 + PITCH.margin));
+  });
+
+  it('follow closer behind the nearer they are, a fast ball still in view', () => {
+    expect(closeupTimeConstant(DEFAULT_CLOSEUP.distance)).toBeCloseTo(0.1068, 9);
+    expect(closeupTimeConstant(3)).toBe(0.05);
+    expect(closeupTimeConstant(60)).toBe(0.35); // as the broadcast camera
+    const halfWidth = (d: number) => d * Math.tan((CAMERA_FOV / 2) * DEG2RAD) * (16 / 9);
+    for (const d of [6, 12, 20, 38]) {
+      // The lag behind 25 m/s: v·τ.
+      expect(25 * closeupTimeConstant(d)).toBeLessThanOrEqual(0.4 * halfWidth(d) + 1e-9);
+    }
+  });
+
+  it('are settings of the 3D tab', () => {
+    const t = defaultTargets();
+    expect(closeupOptions(t.app)).toEqual(DEFAULT_CLOSEUP);
+    expect(
+      applySettings(t, {
+        closeup_distance_3d: 25,
+        closeup_elevation_3d: 45,
+        camera_3d: 'closeup-player',
+      }),
+    ).toEqual(['closeup_distance_3d', 'closeup_elevation_3d', 'camera_3d']);
+    expect(closeupOptions(t.app)).toEqual({ distance: 25, elevation: 45 });
+    // Out of the ranges (3–60 m, 5–85°): not taken.
+    expect(applySettings(t, { closeup_distance_3d: 1, closeup_elevation_3d: 90 })).toEqual([]);
+    resetView3d(t.app);
+    expect(closeupOptions(t.app)).toEqual(DEFAULT_CLOSEUP);
+    expect(t.app.camera3d).toBe('closeup-player'); // the camera is not one of the tab's
   });
 });
 

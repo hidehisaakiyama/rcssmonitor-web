@@ -1,6 +1,7 @@
 // The view configuration (rcssmonitor src/config_dialog.cpp) with the same
 // tabs: Show, Canvas, Color and Font, and two tabs for the 3D view (not in
-// rcssmonitor): 3D (the compass, the minimap, the boards and the banners) and
+// rcssmonitor): 3D (the close-up cameras, the compass, the minimap, the boards and
+// the banners, the players) and
 // Player Camera (the selected player's camera and what it draws). Changes
 // apply at once. The controls follow the view while open, e.g. when a key
 // toggles an option.
@@ -18,6 +19,7 @@ import {
   type AppSettings,
 } from '../../options/settings';
 import { DEFAULT_FONTS, DEFAULT_PALETTE, type Fonts, type Palette } from '../../view/palette';
+import { CLOSEUP_RANGE } from '../../view/render3d/cameras';
 import { DEFAULT_PLAYER_CAMERA } from '../../view/render3d/player-camera';
 import {
   MAX_FIELD_SCALE,
@@ -760,11 +762,44 @@ export class ConfigDialog {
     return [l, input];
   }
 
-  /** The compass and the minimap, the boards and the banners, for every camera of the 3D view. */
+  /**
+   * The close-up cameras, and for every camera of the 3D view, the compass
+   * and the minimap, the players, the boards and the banners.
+   */
   private view3dTab(): HTMLElement {
     const page = el('div');
     const app = this.host.app;
     page.append(
+      this.group(
+        'Close-up Camera',
+        this.row(
+          ...this.number3d(
+            'config-closeup-distance-3d',
+            'Distance (m):',
+            'How far the close-up cameras are from the ball or the player they follow, in ' +
+              'meters. The wheel over the view changes it too.',
+            () => app.closeupDistance3d,
+            (v) => {
+              app.closeupDistance3d = v;
+            },
+            { ...CLOSEUP_RANGE.distance, step: 0.5, unit: ' m' },
+            () => true,
+          ),
+          ...this.number3d(
+            'config-closeup-elevation-3d',
+            'Elevation (°):',
+            'How high the close-up cameras look down from, in degrees above the ground (the ' +
+              'broadcast camera: 32°).',
+            () => app.closeupElevation3d,
+            (v) => {
+              app.closeupElevation3d = v;
+            },
+            { ...CLOSEUP_RANGE.elevation, step: 1, unit: '°' },
+            () => true,
+          ),
+        ),
+        this.note(CLOSEUP_NOTE),
+      ),
       this.group(
         'Guides',
         ...this.choice(
@@ -1154,6 +1189,9 @@ const MINIMAP_TOOLTIP =
   'The pitch at the bottom right as the 2D view shows it, with the players, the ball, and ' +
   'where the camera is and what it sees.';
 const GUIDES_NOTE = 'Which way the camera looks; they show everything, whatever the Player Sight.';
+const CLOSEUP_NOTE =
+  'Close-up: Ball and Close-up: Selected Player (View > 3D Camera, E) follow from the near ' +
+  'touch line as the broadcast camera does, but nearer; without a selected player, the ball.';
 const PLAYER_MODELS_3D: Choice<AppSettings['playerModel3d']>[] = [
   ['simple', 'Simple', 'Cylinders and spheres.'],
   [
@@ -1195,6 +1233,7 @@ function defaultPlayerCamera(): string {
 function defaultView3d(): string {
   const d = DEFAULT_APP_SETTINGS;
   return [
+    `Close-up ${d.closeupDistance3d} m, ${d.closeupElevation3d}°`,
     `Compass ${choiceLabel(GUIDES, d.compass3d)}`,
     `Minimap ${choiceLabel(GUIDES, d.minimap3d)}`,
     `Boards ${d.boards3d ? 'On' : 'Off'}`,

@@ -15,7 +15,13 @@ import {
   type Palette,
 } from '../view/palette';
 import { GUIDE_MODES, type GuideMode } from '../view/hud/guides';
-import { CAMERA_MODES, type CameraMode } from '../view/render3d/cameras';
+import {
+  CAMERA_MODES,
+  CLOSEUP_RANGE,
+  DEFAULT_CLOSEUP,
+  type CameraMode,
+  type CloseupOptions,
+} from '../view/render3d/cameras';
 import { PLAYER_MODELS, type PlayerModel } from '../view/render3d/figures/figures';
 import {
   DEFAULT_PLAYER_CAMERA,
@@ -50,6 +56,9 @@ export interface AppSettings {
   view3d: boolean;
   /** The camera of the 3D view. */
   camera3d: CameraMode;
+  /** The close-up cameras' distance from what they follow (m) and elevation (degrees). */
+  closeupDistance3d: number;
+  closeupElevation3d: number;
   /** The styles of the selected player's camera (player-camera.ts). */
   playerCameraPosition: PlayerCameraPosition;
   playerCameraDirection: PlayerCameraDirection;
@@ -79,6 +88,8 @@ export const DEFAULT_APP_SETTINGS: Readonly<AppSettings> = Object.freeze({
   canvasHeight: 0,
   view3d: false,
   camera3d: 'broadcast',
+  closeupDistance3d: DEFAULT_CLOSEUP.distance,
+  closeupElevation3d: DEFAULT_CLOSEUP.elevation,
   playerCameraPosition: DEFAULT_PLAYER_CAMERA.position,
   playerCameraDirection: DEFAULT_PLAYER_CAMERA.direction,
   playerCameraMotion: DEFAULT_PLAYER_CAMERA.motion,
@@ -93,6 +104,11 @@ export const DEFAULT_APP_SETTINGS: Readonly<AppSettings> = Object.freeze({
   banners3d: true,
   playerModel3d: 'simple',
 });
+
+/** The close-up cameras' settings, for the 3D renderer. */
+export function closeupOptions(app: AppSettings): CloseupOptions {
+  return { distance: app.closeupDistance3d, elevation: app.closeupElevation3d };
+}
 
 /** The player camera's settings, for the 3D renderer. */
 export function playerCameraOptions(app: AppSettings): PlayerCameraOptions {
@@ -122,6 +138,8 @@ const PLAYER_CAMERA_KEYS = [
 
 /** The settings of its 3D tab. */
 const VIEW_3D_KEYS = [
+  'closeupDistance3d',
+  'closeupElevation3d',
   'compass3d',
   'minimap3d',
   'boards3d',
@@ -140,7 +158,7 @@ export function resetPlayerCamera(app: AppSettings): void {
   reset(app, PLAYER_CAMERA_KEYS);
 }
 
-/** The compass, the minimap, the boards and the banners back to the defaults. */
+/** The close-up cameras, the compass, the minimap, the boards, the banners and the players back to the defaults. */
 export function resetView3d(app: AppSettings): void {
   reset(app, VIEW_3D_KEYS);
 }
@@ -246,6 +264,8 @@ export const SETTINGS: readonly Entry[] = [
   // Not in rcssmonitor.
   appBool('view_3d', 'view3d'),
   appChoice('camera_3d', 'camera3d', CAMERA_MODES),
+  appNumber('closeup_distance_3d', 'closeupDistance3d', CLOSEUP_RANGE.distance),
+  appNumber('closeup_elevation_3d', 'closeupElevation3d', CLOSEUP_RANGE.elevation),
   appChoice('player_camera_position', 'playerCameraPosition', PLAYER_CAMERA_POSITIONS),
   appChoice('player_camera_direction', 'playerCameraDirection', PLAYER_CAMERA_DIRECTIONS),
   appChoice('player_camera_motion', 'playerCameraMotion', PLAYER_CAMERA_MOTIONS),

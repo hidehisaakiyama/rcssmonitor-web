@@ -19,6 +19,8 @@ import {
 export const CAMERA_MODES = [
   'free',
   'broadcast',
+  'closeup-ball',
+  'closeup-player',
   'top',
   'goal-left',
   'goal-right',
@@ -29,6 +31,8 @@ export type CameraMode = (typeof CAMERA_MODES)[number];
 export const CAMERA_LABELS: Readonly<Record<CameraMode, string>> = {
   free: 'Free',
   broadcast: 'Broadcast',
+  'closeup-ball': 'Close-up: Ball',
+  'closeup-player': 'Close-up: Selected Player',
   top: 'Top',
   'goal-left': 'Behind the Left Goal',
   'goal-right': 'Behind the Right Goal',
@@ -127,6 +131,58 @@ export function broadcastPose(aspect: number, ball: { x: number; y: number }): C
     target: { x: tx, y: 0, z: tz },
     fov: CAMERA_FOV,
   };
+}
+
+/** The close-up cameras: how far from what they follow (m) and how high above it (degrees). */
+export interface CloseupOptions {
+  readonly distance: number;
+  readonly elevation: number;
+}
+
+export const DEFAULT_CLOSEUP: CloseupOptions = Object.freeze({ distance: 12, elevation: 20 });
+
+/** The ranges of the close-up settings (the wheel stays within the distance's). */
+export const CLOSEUP_RANGE = Object.freeze({
+  distance: { min: 3, max: 60 },
+  elevation: { min: 5, max: 85 },
+});
+
+/** Where the close-up camera of a player looks: the middle of the player (m). */
+export const CLOSEUP_PLAYER_HEIGHT = 1;
+
+export function isCloseup(mode: CameraMode): boolean {
+  return mode === 'closeup-ball' || mode === 'closeup-player';
+}
+
+/**
+ * Close-up: as the broadcast camera, from the near touch line's side, but
+ * `distance` meters from `at` (a point `height` above the ground) and
+ * `elevation` degrees above it. It stays over the ground that is drawn.
+ */
+export function closeupPose(
+  at: { x: number; y: number },
+  height: number,
+  options: CloseupOptions,
+): CameraPose {
+  const e = options.elevation * DEG2RAD;
+  const d = options.distance;
+  const tx = clamp(at.x, -TEXTURE_AREA.length / 2, TEXTURE_AREA.length / 2);
+  const tz = clamp(at.y, -TEXTURE_AREA.width / 2, TEXTURE_AREA.width / 2);
+  return {
+    position: { x: tx, y: height + d * Math.sin(e), z: tz + d * Math.cos(e) },
+    target: { x: tx, y: height, z: tz },
+    fov: CAMERA_FOV,
+  };
+}
+
+/**
+ * How closely the close-up camera follows (smoothToward's time constant,
+ * seconds): the lag behind something at speed v is v·τ, and the view is
+ * narrower the nearer the camera. With 0.0089 s/m, a fast ball (25 m/s)
+ * stays within 40% of half the width of a 16:9 view behind.
+ */
+export function closeupTimeConstant(distance: number): number {
+  return clamp(0.0089 * distance, 0.05, 0.35);
 }
 
 /** Behind a goal (-1 left, +1 right), above the crossbar, looking at the ball. */
