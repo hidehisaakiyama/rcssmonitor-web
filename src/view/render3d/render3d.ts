@@ -334,8 +334,6 @@ export class Render3D implements FieldRenderer {
   private playerModel: PlayerModel = 'simple';
   private figures: Figures | null = null;
   private figureInputs: FigureInput[] = [];
-  /** The game's time of the last draw (s), for the figures' animations. */
-  private lastGameTime: number | null = null;
   private readonly cards: Sprite[] = [];
   private readonly sectors: Mesh[] = [];
   private readonly sectorGeometries = new Map<number, BufferGeometry>();
@@ -1568,10 +1566,6 @@ export class Render3D implements FieldRenderer {
   private updateFigures(scene: SceneSnapshot | null, sp: ServerParam): void {
     const figures = this.figures;
     const step = (sp.simulator_step || 100) / 1000;
-    const gameTime = scene ? (scene.frameIndex + scene.alpha) * step : 0;
-    const last = this.lastGameTime;
-    this.lastGameTime = gameTime;
-    const dt = last === null ? 0 : gameTime - last;
     if (!figures) {
       return;
     }
@@ -1580,10 +1574,7 @@ export class Render3D implements FieldRenderer {
       frameIndex: scene?.frameIndex ?? 0,
       next: scene?.next,
       alpha: scene?.alpha ?? 0,
-      // Backward or a jump (more than a second): no animation step.
-      dt: dt < 0 || dt > 1 ? 0 : dt,
       step,
-      tackleCycles: sp.tackle_cycles,
       catchCycles: sp.catch_ban_cycle,
     });
   }

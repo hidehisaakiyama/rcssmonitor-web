@@ -1,12 +1,18 @@
 // The human figures: a rigged glTF model with its animations (the CC0
 // Quaternius Mannequin, models/README.md). Each player has a copy of the
 // model and an animation mixer:
-// - the idle, walk, run and sprint clips mixed by the speed, each played as
-//   fast as the player goes;
-// - the head turned by the neck; the kick and the tackle (pose.ts) put on
-//   the legs and the upper body over the clips, the catch and the pointing
-//   on the arms. The axes are the model's (forward, up, across), taken into
+// - the idle, walk, run and sprint clips mixed by the speed, each at the
+//   time of the distance walked (pose.ts gaitAt) over its own speed, and the
+//   idle one at the game's time: so a frame shows the same however it is
+//   reached, and stepping back walks back;
+// - the head turned by the neck; the kick, the tackle and the fall after a
+//   foul (pose.ts) put on the legs and the upper body over the clips, the
+//   catch, the fall and the pointing on the arms. The axes are the model's (forward, up, across), taken into
 //   each bone's parent, so that any rig works.
+// The mixer writes a bone only when its clips' value changes, so a bone
+// turned over the clips keeps the turn when the same time is drawn again
+// (while a camera glides after a step): each turn is undone first then
+// (Overlay), not turned again on top of the last.
 // The jersey material is copied for each player, in its color. The figures
 // are FIGURE_SCALE times a person's size, to be seen from afar.
 import {
@@ -28,7 +34,7 @@ import { clone } from 'three/addons/utils/SkeletonUtils.js';
 import { MAX_PLAYER } from '../../../core/constants';
 import { DEG2RAD } from '../../../core/geometry';
 import type { FigureInput, Figures, FigureState, FigureTime } from './figures';
-import { advanceGait, poseOf, speedOf, type LimbPose } from './pose';
+import { gaitAt, poseOf, speedOf, type LimbPose } from './pose';
 import mannequinUrl from './models/Mannequin.glb?url';
 
 /** What a model offers, by name. */
@@ -77,6 +83,14 @@ export const MANNEQUIN: ModelRig = {
 export const FIGURE_SCALE = 1.2;
 const HEIGHT = 1.85 * FIGURE_SCALE;
 
+/** A bone turned over the clips: as the clips had it, and as turned. */
+interface Overlay {
+  readonly base: Quaternion;
+  readonly applied: Quaternion;
+  /** Turned in this update. */
+  touched: boolean;
+}
+
 /** One player's copy of the model. */
 interface Figure {
   readonly root: Object3D;
@@ -93,7 +107,17 @@ interface Figure {
     lowerLeg: { L?: Bone; R?: Bone };
     upperArm: { L?: Bone; R?: Bone };
   };
-  phase: number;
+  /** The bones turned over the clips in the last update. */
+  readonly overlays: Map<Bone, Overlay>;
+}
+
+/** Puts a looping clip at `seconds` of its time, forward or back. */
+function playAt(action: AnimationAction | undefined, seconds: number): void {
+  if (!action) {
+    return;
+  }
+  const d = action.getClip().duration || 1;
+  action.time = ((seconds % d) + d) % d;
 }
 
 export class GltfFigures implements Figures {
@@ -109,6 +133,9 @@ export class GltfFigures implements Figures {
     kicks: 0,
     tackles: 0,
     catches: 0,
+    fouled: 0,
+    knees: [],
+    heads: [],
   };
   // Reused.
   private readonly q = new Quaternion();
@@ -133,7 +160,7 @@ export class GltfFigures implements Figures {
     if (!this.ready) {
       return;
     }
-    const counts = { kicks: 0, tackles: 0, catches: 0 };
+    const counts = { kicks: 0, tackles: 0, catches: 0, fouled: 0 };
     const drawn = new Set<number>();
     for (const input of players) {
       const f = this.figures[input.index];
@@ -142,18 +169,21 @@ export class GltfFigures implements Figures {
       }
       drawn.add(input.index);
       const p = input.player;
-      f.phase = advanceGait(f.phase, p, time);
-      const pose = poseOf(p, input.index, f.phase, time);
+      const gait = gaitAt(time, input.index);
+      const pose = poseOf(p, input.index, gait.phase, time);
       if (pose.action === 'kick') {
         ++counts.kicks;
       } else if (pose.action === 'tackle') {
         ++counts.tackles;
       } else if (pose.action === 'catch') {
         ++counts.catches;
+      } else if (pose.action === 'fouled') {
+        ++counts.fouled;
       }
       // Idle, walk, run and sprint by the speed; still while acting.
       const v = speedOf(p, time.step);
-      const acting = pose.action === 'kick' || pose.action === 'tackle' ? 1 : 0;
+      const acting =
+        pose.action === 'kick' || pose.action === 'tackle' || pose.action === 'fouled' ? 1 : 0;
       const ramp = (x: number) => Math.min(1, Math.max(0, x));
       const sprint = f.sprint ? ramp((v - 5) / 1.5) * (1 - acting) : 0;
       const run = ramp((v - 2) / 1.5) * (1 - sprint) * (1 - acting);
@@ -162,10 +192,13 @@ export class GltfFigures implements Figures {
       f.run.setEffectiveWeight(run);
       f.walk.setEffectiveWeight(walk);
       f.idle.setEffectiveWeight(Math.max(0, 1 - walk - run - sprint));
-      f.walk.setEffectiveTimeScale(Math.max(0.3, v / this.rig.walkSpeed));
-      f.run.setEffectiveTimeScale(Math.max(0.5, v / this.rig.runSpeed));
-      f.sprint?.setEffectiveTimeScale(Math.max(0.6, v / (this.rig.sprintSpeed ?? 6.5)));
-      f.mixer.update(time.dt);
+      // Where the clips are, from the log: then the mixer only applies them.
+      playAt(f.idle, (time.frameIndex + time.alpha) * time.step + input.index * 0.53);
+      playAt(f.walk, gait.distance / this.rig.walkSpeed);
+      playAt(f.run, gait.distance / this.rig.runSpeed);
+      playAt(f.sprint, gait.distance / (this.rig.sprintSpeed ?? 6.5));
+      f.mixer.update(0);
+      this.undoTurns(f);
 
       // glTF models look along +Z; field direction d is +X turned by -d.
       f.root.position.set(p.x, -pose.drop, p.y);
@@ -183,22 +216,49 @@ export class GltfFigures implements Figures {
         this.leg(f, 'L', pose.legL);
         this.leg(f, 'R', pose.legR);
       }
-      // The arms: up for the goalie's catch, the right one pointing.
-      if (pose.action === 'catch') {
+      // The arms: up for the goalie's catch, behind on the ground when down, the right one pointing.
+      if (pose.action === 'catch' || pose.action === 'fouled') {
         this.arm(f, 'L', pose.armL);
         this.arm(f, 'R', pose.armR);
       } else if (p.point && pose.action === null) {
         this.arm(f, 'R', pose.armR);
       }
+      this.keepTurns(f);
     }
     this.figures.forEach((f, i) => {
       f.root.visible = drawn.has(i);
     });
-    this.state = { model: 'figure', ready: true, drawn: drawn.size, ...counts };
+    this.state = {
+      model: 'figure',
+      ready: true,
+      drawn: drawn.size,
+      ...counts,
+      knees: [],
+      heads: [],
+    };
   }
 
   inspect(): FigureState {
-    return this.state;
+    const at = new Vector3();
+    const round = (v: number) => Math.round(v * 1e4) / 1e4;
+    const knees = this.figures.map((f) => {
+      const knee = f.bones.lowerLeg.L;
+      if (!f.root.visible || !knee) {
+        return null;
+      }
+      knee.getWorldPosition(at);
+      return { x: round(at.x), y: round(at.y), z: round(at.z) };
+    });
+    const q = new Quaternion();
+    const heads = this.figures.map((f) => {
+      const head = f.bones.head;
+      if (!f.root.visible || !head) {
+        return null;
+      }
+      head.getWorldQuaternion(q);
+      return [q.x, q.y, q.z, q.w].map(round);
+    });
+    return { ...this.state, knees, heads };
   }
 
   /** Why the model did not load, if it did not. */
@@ -275,8 +335,7 @@ export class GltfFigures implements Figures {
           lowerLeg: { L: bone(b.lowerLeg.L), R: bone(b.lowerLeg.R) },
           upperArm: { L: bone(b.upperArm.L), R: bone(b.upperArm.R) },
         },
-        // Out of step with each other.
-        phase: i * 1.7,
+        overlays: new Map(),
       });
       this.group.add(root);
     }
@@ -301,6 +360,30 @@ export class GltfFigures implements Figures {
   }
 
   /**
+   * Back to the clips' pose where the mixer did not write it again (its
+   * value did not change): those bones are still as the last update turned them.
+   */
+  private undoTurns(f: Figure): void {
+    for (const [bone, o] of f.overlays) {
+      if (bone.quaternion.equals(o.applied)) {
+        bone.quaternion.copy(o.base);
+      }
+      o.touched = false;
+    }
+  }
+
+  /** Keeps how the bones turned in this update are, and forgets the others. */
+  private keepTurns(f: Figure): void {
+    for (const [bone, o] of f.overlays) {
+      if (o.touched) {
+        o.applied.copy(bone.quaternion);
+      } else {
+        f.overlays.delete(bone);
+      }
+    }
+  }
+
+  /**
    * Turns a bone by `deg` degrees about one of the model's axes (+Y up,
    * +X across: a model looking along +Z has its right at -X), taken into
    * the bone's parent so that it turns about its own joint.
@@ -308,6 +391,15 @@ export class GltfFigures implements Figures {
   private turn(f: Figure, bone: Bone | undefined, about: 'up' | 'right', deg: number): void {
     if (!bone?.parent || Math.abs(deg) < 1e-3) {
       return;
+    }
+    let o = f.overlays.get(bone);
+    if (!o) {
+      o = { base: new Quaternion(), applied: new Quaternion(), touched: false };
+      f.overlays.set(bone, o);
+    }
+    if (!o.touched) {
+      o.base.copy(bone.quaternion);
+      o.touched = true;
     }
     f.root.getWorldQuaternion(this.rootQ);
     bone.parent.getWorldQuaternion(this.parentQ);

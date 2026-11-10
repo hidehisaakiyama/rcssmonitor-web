@@ -3,13 +3,17 @@
 // render3d.ts (simple), or Quaternius' rigged Mannequin with its animations
 // (figure, gltf.ts). Of the prototypes compared, the user chose this one.
 //
-// What the figures do comes from the log:
-// - walking and running by the speed, and turning the head by the neck;
-// - the kick, the tackle and the catch from the state bits of the frames
-//   around the one drawn (actionPhase), so that a paused, stepped or
-//   rewound view shows the same pose as when it plays (pose.ts).
-// The animations go by the game's time (frames and the fraction between
-// them), so they speed up with fast forward and stop with the pause.
+// What the figures do comes from the log alone, the frame drawn and the
+// fraction to the next one, so that a paused, stepped or rewound view shows
+// the same pose as when it plays (pose.ts):
+// - walking and running by the distance walked up to the frame (gaitAt),
+//   backward when going back, and turning the head by the neck;
+// - the kick, the tackle, the catch and being fouled from the runs of
+//   state bits around the frame (actionRun): rcssserver keeps the tackle's
+//   bits while it holds the player, which it does not after a foul, and
+//   the foul charged bit while the fouled player is held.
+// So the animations go with the game's time: faster with fast forward,
+// still while paused, backward when stepping back.
 import type { Color, Object3D } from 'three';
 import type { Frame, PlayerState } from '../../../core/frame';
 import type { GameStore } from '../../../core/game-store';
@@ -34,12 +38,9 @@ export interface FigureTime {
   readonly frameIndex: number;
   readonly next: Frame | undefined;
   readonly alpha: number;
-  /** Seconds of the game since the last draw: 0 when paused or after a jump. */
-  readonly dt: number;
   /** Seconds per cycle (simulator_step). */
   readonly step: number;
-  /** Cycles a tackle holds the player (tackle_cycles), and a catch (catch_ban_cycle). */
-  readonly tackleCycles: number;
+  /** Cycles a catch holds the ball (catch_ban_cycle): the arms stay up. */
   readonly catchCycles: number;
 }
 
@@ -61,38 +62,64 @@ export interface FigureState {
   readonly kicks: number;
   readonly tackles: number;
   readonly catches: number;
+  /** The players down after a foul. */
+  readonly fouled: number;
+  /** Where each player's left knee is (world, by player index; null: not a figure), to compare poses. */
+  readonly knees: readonly ({ x: number; y: number; z: number } | null)[];
+  /** How each player's head is turned (world quaternion x, y, z, w; null: not a figure). */
+  readonly heads: readonly (readonly number[] | null)[];
+}
+
+/** Frames a run of a state bit is looked through at most, longer than the server holds any. */
+const MAX_RUN = 50;
+
+/** Where an action marked by a run of frames with a state bit stands. */
+export interface ActionRun {
+  /**
+   * Cycles from the run's first frame, plus the fraction to the next frame:
+   * in [-1, 0) while the drawn frame goes to it (the wind-up).
+   */
+  readonly phase: number;
+  /** How many cycles after its first frame the bit lasts (0: that frame only). */
+  readonly last: number;
 }
 
 /**
- * Where an action marked by a state bit stands for player `index`, in
- * cycles from the frame where it happened: in [-1, 0) while the drawn frame
- * goes to the next one, which has the bit (the wind-up); else the cycles
- * since the latest frame with it, within `within` cycles back, plus the
- * fraction to the next frame. Null without one.
+ * The run of frames where player `index` has `bit` (any of its bits), around
+ * the frame drawn: the one it is in, the one the next frame starts, or the
+ * latest that ended within `within` cycles before. Null without one.
  */
-export function actionPhase(
+export function actionRun(
   time: FigureTime,
   index: number,
   bit: number,
   within: number,
-): number | null {
-  const has = (f: Frame | undefined) => ((f?.players[index]?.state ?? 0) & bit) !== 0;
+): ActionRun | null {
   const store = time.store;
   if (!store) {
     return null;
   }
-  if (has(store.frame(time.frameIndex))) {
-    return time.alpha;
-  }
-  if (has(time.next)) {
-    return time.alpha - 1;
-  }
-  for (let k = 1; k <= within; ++k) {
-    if (has(store.frame(time.frameIndex - k))) {
-      return k + time.alpha;
+  const has = (i: number) =>
+    i >= 0 && i < store.frameCount && ((store.frame(i)?.players[index]?.state ?? 0) & bit) !== 0;
+  const f = time.frameIndex;
+  let end: number | null = has(f) ? f : has(f + 1) ? f + 1 : null;
+  for (let k = 1; end === null && k <= within; ++k) {
+    if (has(f - k)) {
+      end = f - k;
     }
   }
-  return null;
+  if (end === null) {
+    return null;
+  }
+  let first = end;
+  while (end - first < MAX_RUN && has(first - 1)) {
+    --first;
+  }
+  let last = end;
+  while (last - first < MAX_RUN && has(last + 1)) {
+    ++last;
+  }
+  return { phase: f - first + time.alpha, last: last - first };
 }
 
 /** The frame where an action of `phase` (actionPhase) happened. */

@@ -63,6 +63,9 @@ interface Renderer {
       kicks: number;
       tackles: number;
       catches: number;
+      fouled: number;
+      knees: ({ x: number; y: number; z: number } | null)[];
+      heads: (number[] | null)[];
     } | null;
     staminaBars: {
       side: number;
@@ -1378,4 +1381,58 @@ test('follows the ball or the selected player close up, the wheel setting the di
   await expect(field).toHaveValue('12');
   await expect(elevation).toHaveValue('20');
   await expect.poll(() => closeUp(page, () => p, 12, 20)).toBe('ok');
+});
+
+test('plays the figures from the log: fouls, and the same pose however a frame is reached', async ({
+  page,
+}) => {
+  await openApp(page, '?view_3d=on&camera_3d=broadcast&player_model_3d=figure');
+  await wait3d(page);
+  await loadLog(page, 'json-sample.rcg.gz');
+  await expect.poll(async () => (await scene(page))?.figures?.ready).toBe(true);
+  const figures = async (frame: number) => {
+    await page.evaluate((f) => {
+      (window as unknown as { rcssmonitorWeb: Hook }).rcssmonitorWeb.showFrame(f);
+    }, frame);
+    await expect.poll(async () => (await scene(page))?.frameIndex).toBe(frame);
+    // The draw after the frame's.
+    await page.waitForTimeout(100);
+    return (await scene(page))?.figures;
+  };
+
+  // In cycle 151 the right 5 tackles the left 10 with a foul: the tackler
+  // slides in that cycle only, as rcssserver does not hold it, and the
+  // fouled player is down while held (foul_cycles, 5).
+  expect(await figures(150)).toMatchObject({ tackles: 1, fouled: 1 });
+  // Drawn again and again (as while a camera glides after a step), the
+  // heads, the tackler and the fouled player stay as they are: the turns
+  // over the clips are not put on top of the last ones.
+  const once = (await scene(page))?.figures;
+  await page.evaluate(() => {
+    for (let i = 0; i < 5; ++i) {
+      (window as unknown as { rcssmonitorWeb: { renderNow(): void } }).rcssmonitorWeb.renderNow();
+    }
+  });
+  const again = (await scene(page))?.figures;
+  expect(again?.heads).toEqual(once?.heads);
+  expect(again?.knees).toEqual(once?.knees);
+  expect(await figures(152)).toMatchObject({ tackles: 0, fouled: 1 });
+  expect(await figures(157)).toMatchObject({ tackles: 0, fouled: 0 });
+
+  // Stepping on and back, or jumping away and back, draws the same.
+  const knees = (await figures(100))?.knees;
+  expect(knees?.filter((k) => k !== null)).toHaveLength(22);
+  for (let i = 0; i < 3; ++i) {
+    await page.keyboard.press('ArrowRight');
+  }
+  await expect.poll(async () => (await scene(page))?.frameIndex).toBe(103);
+  const on = (await scene(page))?.figures?.knees;
+  expect(on).not.toEqual(knees); // they walked on
+  for (let i = 0; i < 3; ++i) {
+    await page.keyboard.press('ArrowLeft');
+  }
+  await expect.poll(async () => (await scene(page))?.frameIndex).toBe(100);
+  await expect.poll(async () => (await scene(page))?.figures?.knees).toEqual(knees);
+  expect((await figures(130))?.knees).not.toEqual(knees);
+  expect((await figures(100))?.knees).toEqual(knees);
 });
