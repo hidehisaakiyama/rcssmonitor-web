@@ -713,6 +713,22 @@ const cameraStill = (page: Page) =>
     )
     .toBe(false);
 
+/**
+ * What a right click at a field point at a height aims at, at once: no draw
+ * comes between the two, so a camera still moving does not matter (slow
+ * software rendering may take long to let it stop).
+ */
+const aimAtNow = (page: Page, x: number, y: number, height = 0) =>
+  page.evaluate(
+    ({ x, y, height }) => {
+      const field = (window.rcssmonitorWeb as AimHook).field;
+      const r = field.element.getBoundingClientRect();
+      const s = field.renderer.fieldToScreen(x, y, height);
+      return s && field.targetAt(Math.round(r.left + s.x), Math.round(r.top + s.y));
+    },
+    { x, y, height },
+  );
+
 /** What a right click at a field point at a height aims at. */
 async function aimAt(page: Page, x: number, y: number, height = 0): Promise<FieldTarget | null> {
   const w = await windowOf(page, x, y, height);
@@ -1122,11 +1138,12 @@ test('draws the players as human figures, but cylinders from above and when unse
   await loadLog(page, 'json-sample.rcg.gz');
   // The model loads when chosen.
   await expect.poll(async () => (await scene(page))?.figures?.ready).toBe(true);
-  // In cycle 32 the left 7 kicks the ball.
+  // In cycle 32 the left 7 kicks the ball; drawn (not still the frame before).
   await hook(page, (h) => {
     h.showFrame(31);
     h.view.selectPlayer(7);
   });
+  await expect.poll(async () => (await scene(page))?.frameIndex).toBe(31);
   const counts = async () => {
     const s = await scene(page);
     return s && { players: s.players, cylinders: s.cylinders, figures: s.figures?.drawn };
@@ -1143,10 +1160,7 @@ test('draws the players as human figures, but cylinders from above and when unse
     const p = field.gameStore.frame(h.field.frameIndex).players[6];
     return { x: p?.x ?? 0, y: p?.y ?? 0 };
   });
-  await cameraStill(page);
-  await expect
-    .poll(async () => (await aimAt(page, p7.x, p7.y, 2.0))?.player)
-    .toEqual({ side: Side.Left, unum: 7 });
+  expect((await aimAtNow(page, p7.x, p7.y, 2.0))?.player).toEqual({ side: Side.Left, unum: 7 });
 
   // From above, cylinders.
   await page.locator('#camera-select').selectOption('top');
@@ -1160,6 +1174,7 @@ test('draws the players as human figures, but cylinders from above and when unse
     h.view.selectPlayer(16);
   });
   await page.locator('#camera-select').selectOption('player');
+  await expect.poll(async () => (await scene(page))?.frameIndex).toBe(150);
   await expect
     .poll(async () => {
       const s = await scene(page);
