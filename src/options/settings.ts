@@ -14,6 +14,7 @@ import {
   type Fonts,
   type Palette,
 } from '../view/palette';
+import { GUIDE_MODES, type GuideMode } from '../view/hud/guides';
 import { CAMERA_MODES, type CameraMode } from '../view/render3d/cameras';
 import {
   DEFAULT_PLAYER_CAMERA,
@@ -57,6 +58,12 @@ export interface AppSettings {
   playerCameraTimeConstant: number;
   playerCameraMaxTurn: number;
   playerCameraFixedFov: number;
+  /** The compass and the minimap over the 3D view (hud/guides.ts). */
+  compass3d: GuideMode;
+  minimap3d: GuideMode;
+  /** The boards around the pitch and the banners behind the goals of the 3D view (stadium.ts). */
+  boards3d: boolean;
+  banners3d: boolean;
 }
 
 export const DEFAULT_APP_SETTINGS: Readonly<AppSettings> = Object.freeze({
@@ -77,6 +84,10 @@ export const DEFAULT_APP_SETTINGS: Readonly<AppSettings> = Object.freeze({
   playerCameraTimeConstant: DEFAULT_PLAYER_CAMERA.timeConstant,
   playerCameraMaxTurn: DEFAULT_PLAYER_CAMERA.maxTurn,
   playerCameraFixedFov: DEFAULT_PLAYER_CAMERA.fixedFov,
+  compass3d: 'off',
+  minimap3d: 'off',
+  boards3d: true,
+  banners3d: true,
 });
 
 /** The player camera's settings, for the 3D renderer. */
@@ -93,7 +104,8 @@ export function playerCameraOptions(app: AppSettings): PlayerCameraOptions {
   };
 }
 
-const PLAYER_CAMERA_KEYS = [
+/** The settings of the preference dialog's 3D tab. */
+const VIEW_3D_TAB_KEYS = [
   'playerCameraPosition',
   'playerCameraDirection',
   'playerCameraMotion',
@@ -102,11 +114,15 @@ const PLAYER_CAMERA_KEYS = [
   'playerCameraTimeConstant',
   'playerCameraMaxTurn',
   'playerCameraFixedFov',
+  'compass3d',
+  'minimap3d',
+  'boards3d',
+  'banners3d',
 ] as const satisfies readonly (keyof AppSettings)[];
 
-/** The player camera's settings back to the defaults. */
-export function resetPlayerCamera(app: AppSettings): void {
-  for (const key of PLAYER_CAMERA_KEYS) {
+/** The 3D tab's settings (the player camera, the guides, the boards and banners) back to the defaults. */
+export function resetView3dTab(app: AppSettings): void {
+  for (const key of VIEW_3D_TAB_KEYS) {
     Object.assign(app, { [key]: DEFAULT_APP_SETTINGS[key] });
   }
 }
@@ -220,6 +236,10 @@ export const SETTINGS: readonly Entry[] = [
   appNumber('player_camera_time_constant', 'playerCameraTimeConstant', { min: 0, max: 5 }),
   appNumber('player_camera_max_turn', 'playerCameraMaxTurn', { min: 1, max: 3600 }),
   appNumber('player_camera_fixed_fov', 'playerCameraFixedFov', { min: 20, max: 120 }),
+  appChoice('compass_3d', 'compass3d', GUIDE_MODES),
+  appChoice('minimap_3d', 'minimap3d', GUIDE_MODES),
+  appBool('boards_3d', 'boards3d'),
+  appBool('banners_3d', 'banners3d'),
 
   viewBool('show_score_board', 'showScoreBoard'),
   viewBool('show_team_graphic', 'showTeamGraphic'),

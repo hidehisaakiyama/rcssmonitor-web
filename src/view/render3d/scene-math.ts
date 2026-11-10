@@ -129,3 +129,73 @@ export const TEXTURE_SCALE = 24;
  * about the real width of the lines.
  */
 export const TEXTURE_PEN_SCALE = 3;
+
+/**
+ * The boards around the pitch: just outside the margin (where the players
+ * can go), as high as real ones. Along the touch lines they change color at
+ * the halfway line, so that either side shows which half it is, wherever a
+ * camera looks. They are a dark shade of the team color with the team name
+ * in the team color (BOARD_SHADE), so that the players, in the team colors,
+ * stand out against them.
+ */
+export const BOARDS = Object.freeze({
+  /** From the touch lines and the goal lines, in meters. */
+  offset: PITCH.margin + 0.5,
+  height: 1,
+  /** The team name is written once in every this many meters. */
+  tile: 10,
+});
+
+/** How bright the boards and the banners are, of the team color. */
+export const BOARD_SHADE = 0.32;
+
+/**
+ * The banner behind each goal, with the team name and logo, to be seen from
+ * the other end. It floats high above the goal, so that the goal stands out
+ * against the sky and the ground beyond it, not against the banner; and it
+ * is behind the goal camera (cameras.ts: 18 m behind the goal line), so that
+ * it does not hide the pitch from it.
+ */
+export const BANNER = Object.freeze({ behind: 22, width: 50, height: 8, bottom: 12 });
+
+/** `color` (#rgb, #rrggbb or rgb(r, g, b)) times `k`, as #rrggbb; `color` itself if it cannot read it. */
+export function shade(color: string, k: number): string {
+  const c = parseRgb(color);
+  if (!c) {
+    return color;
+  }
+  const hex = (v: number) =>
+    Math.round(Math.min(255, Math.max(0, v * k)))
+      .toString(16)
+      .padStart(2, '0');
+  return `#${c.map(hex).join('')}`;
+}
+
+/**
+ * Black or white, whichever reads better on a color (#rgb, #rrggbb or
+ * rgb(r, g, b)): black above the relative luminance where both contrast
+ * equally (WCAG), and for colors it cannot read.
+ */
+export function textColorOn(color: string): '#000000' | '#ffffff' {
+  const c = parseRgb(color);
+  if (!c) {
+    return '#000000';
+  }
+  const linear = (v: number) => {
+    const s = v / 255;
+    return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  };
+  const l = 0.2126 * linear(c[0]) + 0.7152 * linear(c[1]) + 0.0722 * linear(c[2]);
+  return l > 0.179 ? '#000000' : '#ffffff';
+}
+
+function parseRgb(color: string): [number, number, number] | null {
+  const s = color.trim().toLowerCase();
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/.exec(s)?.[1];
+  if (hex) {
+    const full = hex.length === 3 ? [...hex].map((h) => h + h).join('') : hex;
+    return [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16)) as [number, number, number];
+  }
+  const m = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/.exec(s);
+  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+}

@@ -2,6 +2,7 @@
 import type { Frame } from '../core/frame';
 import type { GameStore } from '../core/game-store';
 import type { Vec2 } from '../core/geometry';
+import type { CameraGuide } from './hud/guides';
 import type { ViewState } from './view-state';
 
 /** The game state to draw. */
@@ -34,5 +35,7 @@ export interface FieldRenderer {
   screenToField(x: number, y: number): Vec2 | null;
   /** Canvas point (CSS pixels) of field coordinates, or null. */
   fieldToScreen(x: number, y: number): Vec2 | null;
+  /** Where the 3D camera is, for the compass and the minimap; null: none to draw. */
+  guide?(): CameraGuide | null;
   dispose(): void;
 }

@@ -21,6 +21,10 @@
 // - The player camera may draw only what the player perceives (sight.ts):
 //   the others fade to gray when their team is not known, lose their number
 //   and direction marks, or are not drawn.
+// - To tell the ends apart, the goal nets, the boards around the pitch and
+//   the banners above and behind the goals are in the team colors
+//   (stadium.ts; the boards and the banners can be hidden). The HUD may show
+//   a compass and a minimap of where the camera is (guide()).
 import {
   AmbientLight,
   BoxGeometry,
@@ -71,8 +75,9 @@ import {
   type PlayerState,
 } from '../../core/frame';
 import type { GameStore } from '../../core/game-store';
-import { DEG2RAD, type Vec2 } from '../../core/geometry';
+import { DEG2RAD, RAD2DEG, type Vec2 } from '../../core/geometry';
 import { DEFAULT_SERVER_PARAM, type ServerParam } from '../../core/params';
+import { guideShown, type CameraGuide, type GuideMode } from '../hud/guides';
 import { playerStyle } from '../player-style';
 import type { FieldRenderer, SceneSnapshot } from '../renderer';
 import type { ViewState } from '../view-state';
@@ -101,6 +106,7 @@ import {
   type World,
 } from './scene-math';
 import { FULL, perceiveBall, perceivePlayer, type Perception } from './sight';
+import { Stadium, type StadiumState } from './stadium';
 
 const PLAYERS = 2 * MAX_PLAYER;
 /** A player whose team is not known (the player camera's sight). */
@@ -134,6 +140,8 @@ export interface Render3DState {
     /** Vertical, in degrees. */
     readonly fov: number;
   };
+  /** The ends in the team colors: the nets (left, right), the boards and the banners. */
+  readonly stadium: StadiumState & { readonly nets: readonly string[] };
   /** The frame drawn last (before interpolation), or -1. */
   readonly frameIndex: number;
   readonly drawCalls: number;
@@ -194,6 +202,10 @@ export class Render3D implements FieldRenderer {
   private readonly sectorMaterial: MeshBasicMaterial;
   private readonly largeView: LineSegments;
   private largeViewWidth = -1;
+  private readonly stadium: Stadium;
+  /** The goal nets, left and right, in the colors of the teams that keep them. */
+  private readonly nets: MeshBasicMaterial[] = [];
+  private guides: { compass: GuideMode; minimap: GuideMode } = { compass: 'off', minimap: 'off' };
   private readonly ball: Mesh;
   private readonly ballMaterial: MeshLambertMaterial;
   private readonly shadow: Mesh;
@@ -253,6 +265,8 @@ export class Render3D implements FieldRenderer {
     this.scene.add(outside);
 
     this.scene.add(this.goal(-1), this.goal(1));
+    this.stadium = new Stadium(this.fieldTexture.anisotropy);
+    this.scene.add(this.stadium.group);
 
     // Players.
     const lambert = () => this.track(new MeshLambertMaterial({ color: 0xffffff }));
@@ -385,6 +399,7 @@ export class Render3D implements FieldRenderer {
     this.drawnFrame = scene?.frameIndex ?? -1;
     this.updateSight(scene, view, sp);
     this.updateField(view, sp);
+    this.updateStadium(scene, view);
     this.updatePlayers(frame, store, view, sp);
     this.updateViewAreas(frame, view, sp);
     this.updateBall(frame, view, sp);
@@ -418,6 +433,7 @@ export class Render3D implements FieldRenderer {
 
   dispose(): void {
     this.detach();
+    this.stadium.dispose();
     for (const d of this.disposables) {
       d.dispose();
     }
@@ -476,6 +492,39 @@ export class Render3D implements FieldRenderer {
     this.onInvalidate?.();
   }
 
+  /** Shows or hides the boards around the pitch and the banners behind the goals. */
+  setStadium(shown: { boards: boolean; banners: boolean }): void {
+    this.stadium.show(shown);
+    this.onInvalidate?.();
+  }
+
+  /** Which guides (the compass, the minimap) the HUD draws with which cameras. */
+  setGuides(guides: { compass: GuideMode; minimap: GuideMode }): void {
+    if (guides.compass !== this.guides.compass || guides.minimap !== this.guides.minimap) {
+      this.guides = { ...guides };
+      this.onInvalidate?.();
+    }
+  }
+
+  guide(): CameraGuide | null {
+    const compass = guideShown(this.guides.compass, this.mode);
+    const minimap = guideShown(this.guides.minimap, this.mode);
+    if (!compass && !minimap) {
+      return null;
+    }
+    const p = this.cameraPosition;
+    const t = this.cameraTarget;
+    const tan = Math.tan((this.perspective.fov / 2) * DEG2RAD) * this.perspective.aspect;
+    return {
+      x: p.x,
+      y: p.z,
+      direction: Math.atan2(t.z - p.z, t.x - p.x) * RAD2DEG,
+      fov: 2 * Math.atan(tan) * RAD2DEG,
+      compass,
+      minimap,
+    };
+  }
+
   /** For the end-to-end tests. */
   inspect(): Render3DState {
     const at = (o: Object3D) => ({ visible: o.visible, ...world(o.position) });
@@ -483,6 +532,10 @@ export class Render3D implements FieldRenderer {
       ball: at(this.ball),
       shadow: at(this.shadow),
       ...this.counts,
+      stadium: {
+        ...this.stadium.inspect(),
+        nets: this.nets.map((m) => `#${m.color.getHexString()}`),
+      },
       camera: {
         mode: this.mode,
         position: this.cameraPosition,
@@ -637,16 +690,17 @@ export class Render3D implements FieldRenderer {
     bar.position.set(lineX, GOAL_HEIGHT, 0);
     g.add(bar);
 
-    // The net: translucent back, sides and roof.
+    // The net: translucent back, sides and roof, in the color of the team that keeps it.
     const net = this.track(
       new MeshBasicMaterial({
         color: 0xffffff,
         transparent: true,
-        opacity: 0.22,
+        opacity: 0.3,
         side: DoubleSide,
         depthWrite: false,
       }),
     );
+    this.nets.push(net);
     const plane = (w: number, h: number) => this.track(new PlaneGeometry(w, h));
     const back = new Mesh(plane(PITCH.goalWidth, GOAL_HEIGHT), net);
     back.rotation.y = Math.PI / 2;
@@ -730,6 +784,18 @@ export class Render3D implements FieldRenderer {
   }
 
   // ---- updating
+
+  /** The ends in the team colors, with the team names and logos. */
+  private updateStadium(scene: SceneSnapshot | null, view: ViewState): void {
+    const colors = [view.colors.leftTeam, view.colors.rightTeam] as const;
+    this.nets.forEach((m, i) => m.color.set(colors[i] ?? '#ffffff'));
+    const look = (i: 0 | 1) => ({
+      color: colors[i],
+      name: scene?.frame.teams[i].name ?? '',
+      logo: view.options.showTeamGraphic ? (scene?.store.teamGraphics[i] ?? null) : null,
+    });
+    this.stadium.update([look(0), look(1)]);
+  }
 
   private updateField(view: ViewState, sp: ServerParam): void {
     const key = fieldTextureKey(view, sp);

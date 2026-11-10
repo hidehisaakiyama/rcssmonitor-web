@@ -48,7 +48,7 @@ export class FieldView {
   /** The 2D renderer, kept while the 3D one is shown. */
   readonly render2d = new Render2D();
   private rendererValue: FieldRenderer = this.render2d;
-  private readonly hud = new Hud();
+  readonly hud = new Hud();
   private store: GameStore | null = null;
   private index = 0;
   private dirty = true;
@@ -215,7 +215,8 @@ export class FieldView {
     const measure: Measure | null = this.measureMouse.dragged
       ? { start: this.measureMouse.pressedPoint, end: this.measureMouse.draggedPoint }
       : null;
-    this.hud.render(scene, this.view, measure, (x, y) => this.toField({ x, y }));
+    const guide = this.renderer.guide?.() ?? null;
+    this.hud.render(scene, this.view, measure, (x, y) => this.toField({ x, y }), guide);
   }
 
   private toField(p: Vec2): Vec2 {

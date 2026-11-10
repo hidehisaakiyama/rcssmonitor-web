@@ -7,7 +7,7 @@ import {
   applySettings,
   defaultTargets,
   playerCameraOptions,
-  resetPlayerCamera,
+  resetView3dTab,
   settingsFromUrl,
 } from '../../src/options/settings';
 import type { CameraPose } from '../../src/view/render3d/cameras';
@@ -304,7 +304,7 @@ describe("the player camera's settings", () => {
       fov: 'fixed',
       timeConstant: 0.5,
     });
-    resetPlayerCamera(t.app);
+    resetView3dTab(t.app);
     expect(playerCameraOptions(t.app)).toEqual(DEFAULT_PLAYER_CAMERA);
   });
 });

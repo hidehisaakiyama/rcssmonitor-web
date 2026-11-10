@@ -22,16 +22,33 @@ interface Renderer {
     cards: number;
     viewAreas: number;
     camera: { mode: string; position: { x: number; y: number; z: number }; fov: number };
+    stadium: {
+      sides: { color: string; name: string; logo: boolean }[];
+      boards: boolean;
+      banners: boolean;
+      nets: string[];
+    };
     frameIndex: number;
     drawCalls: number;
   };
   fieldToScreen?(x: number, y: number): { x: number; y: number } | null;
+  guide?(): { x: number; y: number; direction: number; fov: number } | null;
 }
 
 interface Hook {
   view: ViewState;
-  field: { renderer: Renderer; frameIndex: number };
+  field: {
+    renderer: Renderer;
+    frameIndex: number;
+    hud: {
+      guides: {
+        compass: { left: number; right: number; ball: number | null } | null;
+        minimap: { x: number; y: number; width: number; height: number } | null;
+      };
+    };
+  };
   playback: { index: number };
+  renderNow(): void;
 }
 
 const hook = <T>(page: Page, f: (h: Hook) => T) =>
@@ -449,4 +466,91 @@ test("draws only what the player camera's player perceives", async ({ page }) =>
   await page.locator('#config-player-camera-sight-view').check();
   await page.locator('#camera-select').selectOption('broadcast');
   await expect.poll(async () => (await seen())?.players).toBe(22);
+});
+
+test('paints the ends in the team colors and shows the compass and the minimap', async ({
+  page,
+}) => {
+  await openApp(page, '?view_3d=on&camera_3d=player&compass_3d=player&minimap_3d=all');
+  await wait3d(page);
+  await loadLog(page, 'json-sample.rcg.gz');
+  // The nets, the boards and the banners: the left team keeps the left goal.
+  const stadium = async () => (await scene(page))?.stadium;
+  await expect.poll(stadium).toEqual({
+    sides: [
+      { color: '#ffd700', name: 'HELIOS2023', logo: true },
+      { color: '#00bfff', name: 'CYRUS', logo: false },
+    ],
+    boards: true,
+    banners: true,
+    nets: ['#ffd700', '#00bfff'],
+  });
+  // They follow the colors and the Team Graphic option.
+  await hook(page, (h) => {
+    h.view.colors.leftTeam = '#ff0000';
+    h.view.set('showTeamGraphic', false);
+  });
+  await expect.poll(stadium).toEqual({
+    sides: [
+      { color: '#ff0000', name: 'HELIOS2023', logo: false },
+      { color: '#00bfff', name: 'CYRUS', logo: false },
+    ],
+    boards: true,
+    banners: true,
+    nets: ['#ff0000', '#00bfff'],
+  });
+
+  const guides = () =>
+    hook(page, (h) => {
+      h.renderNow();
+      return h.field.hud.guides;
+    });
+  // The player camera without a player is the broadcast one, from the near
+  // touch line (+y): the left goal on the left of the compass, the right one
+  // on the right, the ball between them.
+  const g = await guides();
+  expect(g.compass).not.toBeNull();
+  expect(g.minimap).not.toBeNull();
+  const { left, right, ball } = g.compass ?? { left: 0, right: 0, ball: null };
+  expect(left).toBeLessThan(ball ?? -1);
+  expect(ball).toBeLessThan(right);
+  const direction = await hook(page, (h) => h.field.renderer.guide?.()?.direction);
+  expect(direction).toBeCloseTo(-90); // up the 2D screen
+
+  // The compass only with the player camera, the minimap with all but the top.
+  await page.locator('#camera-select').selectOption('broadcast');
+  await expect.poll(async () => (await guides()).compass).toBeNull();
+  expect((await guides()).minimap).not.toBeNull();
+  await page.locator('#camera-select').selectOption('top');
+  await expect.poll(async () => (await guides()).minimap).toBeNull();
+
+  // Set in the 3D tab, kept, and off by default.
+  await page.locator('#camera-select').selectOption('free');
+  await page.keyboard.press('Control+v');
+  await page.locator('#config-tab-3d').click();
+  await expect(page.locator('#config-compass-3d-player')).toBeChecked();
+  await expect(page.locator('#config-minimap-3d-hint')).toContainText('every camera but Top');
+  await page.locator('#config-compass-3d-all').check();
+  await expect.poll(async () => (await guides()).compass).not.toBeNull();
+  // The boards and the banners can be hidden; the nets keep the colors.
+  await expect(page.locator('#config-boards-3d')).toBeChecked();
+  await page.locator('#config-boards-3d').uncheck();
+  await page.locator('#config-banners-3d').uncheck();
+  await expect
+    .poll(async () => {
+      const s = await stadium();
+      return s && { boards: s.boards, banners: s.banners, nets: s.nets };
+    })
+    .toEqual({ boards: false, banners: false, nets: ['#ff0000', '#00bfff'] });
+  await page.locator('#config-player-camera-default').click();
+  await expect(page.locator('#config-compass-3d-off')).toBeChecked();
+  await expect(page.locator('#config-minimap-3d-off')).toBeChecked();
+  await expect(page.locator('#config-banners-3d')).toBeChecked();
+  await expect.poll(async () => (await stadium())?.boards).toBe(true);
+  await expect.poll(async () => await guides()).toEqual({ compass: null, minimap: null });
+  // Not over the 2D view.
+  await page.locator('#config-compass-3d-all').check();
+  await page.locator('#view-3d-button').click();
+  await expect.poll(() => kind(page)).toBe('2d');
+  await expect.poll(async () => await guides()).toEqual({ compass: null, minimap: null });
 });

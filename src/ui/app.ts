@@ -153,8 +153,8 @@ export class App {
         this.applyCanvasSize();
         this.settingsChanged();
       },
-      applyPlayerCamera: () => {
-        this.applyPlayerCamera();
+      applyView3d: () => {
+        this.applyView3d();
         this.settingsChanged();
       },
     });
@@ -234,14 +234,21 @@ export class App {
     if (s.view3d !== this.is3d) {
       void this.set3d(s.view3d);
     }
-    this.applyPlayerCamera();
+    this.applyView3d();
     this.updateToolbar();
   }
 
-  /** Gives the 3D view the player camera's styles (the 3D tab of the preference dialog). */
-  private applyPlayerCamera(): void {
-    const options = playerCameraOptions(this.settings);
-    void this.render3d?.then((r) => r.setPlayerCamera(options));
+  /** Gives the 3D view the settings of the preference dialog's 3D tab. */
+  private applyView3d(): void {
+    void this.render3d?.then((r) => this.configure3d(r));
+  }
+
+  /** The player camera's styles, the compass and the minimap, the boards and the banners. */
+  private configure3d(r: Render3D): void {
+    const s = this.settings;
+    r.setPlayerCamera(playerCameraOptions(s));
+    r.setGuides({ compass: s.compass3d, minimap: s.minimap3d });
+    r.setStadium({ boards: s.boards3d, banners: s.banners3d });
   }
 
   // ---- 2D / 3D
@@ -270,7 +277,7 @@ export class App {
     this.render3d ??= import('../view/render3d/render3d').then((m) => {
       const r = new m.Render3D();
       r.setCameraMode(this.settings.camera3d);
-      r.setPlayerCamera(playerCameraOptions(this.settings));
+      this.configure3d(r);
       // A drag makes the broadcast or goal camera free.
       r.onCameraModeChange = (mode) => {
         this.settings.camera3d = mode;
