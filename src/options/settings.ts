@@ -16,6 +16,7 @@ import {
 } from '../view/palette';
 import { GUIDE_MODES, type GuideMode } from '../view/hud/guides';
 import { CAMERA_MODES, type CameraMode } from '../view/render3d/cameras';
+import { PLAYER_MODELS, type PlayerModel } from '../view/render3d/figures/figures';
 import {
   DEFAULT_PLAYER_CAMERA,
   PLAYER_CAMERA_DIRECTIONS,
@@ -64,6 +65,8 @@ export interface AppSettings {
   /** The boards around the pitch and the banners behind the goals of the 3D view (stadium.ts). */
   boards3d: boolean;
   banners3d: boolean;
+  /** The players as cylinders or as human figures (the prototype: render3d/figures/). */
+  playerModel3d: PlayerModel;
 }
 
 export const DEFAULT_APP_SETTINGS: Readonly<AppSettings> = Object.freeze({
@@ -88,6 +91,7 @@ export const DEFAULT_APP_SETTINGS: Readonly<AppSettings> = Object.freeze({
   minimap3d: 'off',
   boards3d: true,
   banners3d: true,
+  playerModel3d: 'simple',
 });
 
 /** The player camera's settings, for the 3D renderer. */
@@ -122,6 +126,7 @@ const VIEW_3D_KEYS = [
   'minimap3d',
   'boards3d',
   'banners3d',
+  'playerModel3d',
 ] as const satisfies readonly (keyof AppSettings)[];
 
 function reset(app: AppSettings, keys: readonly (keyof AppSettings)[]): void {
@@ -253,6 +258,7 @@ export const SETTINGS: readonly Entry[] = [
   appChoice('minimap_3d', 'minimap3d', GUIDE_MODES),
   appBool('boards_3d', 'boards3d'),
   appBool('banners_3d', 'banners3d'),
+  appChoice('player_model_3d', 'playerModel3d', PLAYER_MODELS),
 
   viewBool('show_score_board', 'showScoreBoard'),
   viewBool('show_team_graphic', 'showTeamGraphic'),

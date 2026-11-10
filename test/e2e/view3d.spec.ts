@@ -45,6 +45,15 @@ interface Renderer {
     labels: string[];
     numberPositions: ({ x: number; y: number; z: number } | null)[];
     numberHeight: number;
+    cylinders: number;
+    figures: {
+      model: string;
+      ready: boolean;
+      drawn: number;
+      kicks: number;
+      tackles: number;
+      catches: number;
+    } | null;
     staminaBars: {
       side: number;
       unum: number;
@@ -1103,4 +1112,73 @@ test('writes the numbers from the top camera as large as the 2D player font', as
   // From the side, the labels keep their size in meters.
   await page.locator('#camera-select').selectOption('broadcast');
   await expect.poll(async () => (await scene(page))?.numberHeight).toBe(1.3);
+});
+
+test('draws the players as human figures, but cylinders from above and when unseen', async ({
+  page,
+}) => {
+  await openApp(page, '?view_3d=on&camera_3d=broadcast&player_model_3d=figure');
+  await wait3d(page);
+  await loadLog(page, 'json-sample.rcg.gz');
+  // The model loads when chosen.
+  await expect.poll(async () => (await scene(page))?.figures?.ready).toBe(true);
+  // In cycle 32 the left 7 kicks the ball.
+  await hook(page, (h) => {
+    h.showFrame(31);
+    h.view.selectPlayer(7);
+  });
+  const counts = async () => {
+    const s = await scene(page);
+    return s && { players: s.players, cylinders: s.cylinders, figures: s.figures?.drawn };
+  };
+  await expect.poll(counts).toEqual({ players: 22, cylinders: 0, figures: 22 });
+  // The numbers above the larger figures (1.2 times life size).
+  const number = (await scene(page))?.numberPositions[6];
+  expect(number?.y).toBeCloseTo((1.65 + 0.75) * 1.2, 5);
+  // A right click on a figure's head, above where a cylinder would end, aims at it.
+  const p7 = await hook(page, (h) => {
+    const field = h.field as unknown as {
+      gameStore: { frame(i: number): { players: { x: number; y: number }[] } };
+    };
+    const p = field.gameStore.frame(h.field.frameIndex).players[6];
+    return { x: p?.x ?? 0, y: p?.y ?? 0 };
+  });
+  await cameraStill(page);
+  await expect
+    .poll(async () => (await aimAt(page, p7.x, p7.y, 2.0))?.player)
+    .toEqual({ side: Side.Left, unum: 7 });
+
+  // From above, cylinders.
+  await page.locator('#camera-select').selectOption('top');
+  await expect.poll(counts).toEqual({ players: 22, cylinders: 22, figures: 0 });
+
+  // The player camera by the server rules: figures for those it sees the
+  // directions of, cylinders for the others (a figure would show them). In
+  // cycle 151 the right 5 tackles, with a player near behind it.
+  await hook(page, (h) => {
+    h.showFrame(150);
+    h.view.selectPlayer(16);
+  });
+  await page.locator('#camera-select').selectOption('player');
+  await expect
+    .poll(async () => {
+      const s = await scene(page);
+      const figures = s?.figures?.drawn ?? 0;
+      // Drawn from the player (some figures again), not still from above.
+      return s && figures > 0 && s.cylinders > 0 && s.players === s.cylinders + figures;
+    })
+    .toBe(true);
+  // The cylinders are those without directions, and the figures have no
+  // direction marks: none at all.
+  expect((await scene(page))?.facings).toBe(0);
+
+  // Chosen in the 3D tab, and Simple by default.
+  await page.keyboard.press('Control+v');
+  await page.locator('#config-tab-3d').click();
+  await expect(page.locator('#config-player-model-3d-figure')).toBeChecked();
+  await page.locator('#config-player-model-3d-simple').check();
+  await expect.poll(async () => (await scene(page))?.figures).toBeNull();
+  await page.locator('#config-player-model-3d-figure').check();
+  await page.locator('#config-3d-default').click();
+  await expect(page.locator('#config-player-model-3d-simple')).toBeChecked();
 });

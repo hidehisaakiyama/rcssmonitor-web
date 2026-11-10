@@ -792,6 +792,19 @@ export class ConfigDialog {
         this.note(GUIDES_NOTE),
       ),
       this.group(
+        'Players',
+        ...this.choice(
+          'config-player-model-3d',
+          'Model:',
+          'How the players are drawn.',
+          PLAYER_MODELS_3D,
+          () => app.playerModel3d,
+          (v) => {
+            app.playerModel3d = v;
+          },
+        ),
+      ),
+      this.group(
         'Stadium',
         this.row(
           this.check3d(
@@ -1141,6 +1154,16 @@ const MINIMAP_TOOLTIP =
   'The pitch at the bottom right as the 2D view shows it, with the players, the ball, and ' +
   'where the camera is and what it sees.';
 const GUIDES_NOTE = 'Which way the camera looks; they show everything, whatever the Player Sight.';
+const PLAYER_MODELS_3D: Choice<AppSettings['playerModel3d']>[] = [
+  ['simple', 'Simple', 'Cylinders and spheres.'],
+  [
+    'figure',
+    'Figure',
+    'Human figures (the CC0 Mannequin by Quaternius), 1.2 times life size: they walk and run ' +
+      'by the speed, and kick, tackle, catch and point by the log. Cylinders from the top ' +
+      'camera, and for players whose directions the player camera does not see.',
+  ],
+];
 const BOARDS_TOOLTIP =
   'Boards around the pitch, 5.5 m out and 1 m high: a dark shade of the team color with the ' +
   'team name and edges in the team color, changing at the halfway line.';
@@ -1176,6 +1199,7 @@ function defaultView3d(): string {
     `Minimap ${choiceLabel(GUIDES, d.minimap3d)}`,
     `Boards ${d.boards3d ? 'On' : 'Off'}`,
     `Banners ${d.banners3d ? 'On' : 'Off'}`,
+    `Model ${choiceLabel(PLAYER_MODELS_3D, d.playerModel3d)}`,
   ].join(', ');
 }
 

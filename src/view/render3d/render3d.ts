@@ -101,6 +101,12 @@ import {
   type CameraPose,
 } from './cameras';
 import { fieldTextureKey, paintFieldTexture } from './field-texture';
+import {
+  type FigureInput,
+  type Figures,
+  type FigureState,
+  type PlayerModel,
+} from './figures/figures';
 import { interpolateFrame } from './interpolate';
 import { Overlays, type OverlayState } from './overlays';
 import { DEFAULT_PLAYER_CAMERA, PlayerCamera, type PlayerCameraOptions } from './player-camera';
@@ -124,6 +130,8 @@ import { Stadium, type StadiumState } from './stadium';
 const PLAYERS = 2 * MAX_PLAYER;
 /** A player whose team is not known (the player camera's sight). */
 const UNKNOWN_TEAM_COLOR = '#9a9a9a';
+/** As figures/gltf.ts FIGURE_SCALE: the figures are this much larger than life (loaded with it). */
+const FIGURE_SCALE = 1.2;
 const BODY_HEIGHT = 1.4;
 const HEAD_RADIUS = 0.22;
 const HEAD_HEIGHT = BODY_HEIGHT + HEAD_RADIUS + 0.03;
@@ -165,6 +173,8 @@ export interface Render3DState {
   readonly ball: { readonly visible: boolean } & World;
   readonly shadow: { readonly visible: boolean } & World;
   readonly players: number;
+  /** Of them, drawn as cylinders (the others as figures). */
+  readonly cylinders: number;
   /** The numbers drawn, and how many of them partly (fading). */
   readonly numbers: number;
   readonly fadingNumbers: number;
@@ -193,6 +203,8 @@ export interface Render3DState {
   };
   /** The overlays drawn: how many of each, and their texts. */
   readonly overlays: OverlayState;
+  /** The human figures (the prototype), or null with the simple ones. */
+  readonly figures: FigureState | null;
   /** The number labels shown (number, player type), by player index. */
   readonly labels: readonly string[];
   /** Where they are (their centers), by player index; null: not shown. */
@@ -262,6 +274,9 @@ export class Render3D implements FieldRenderer {
 
   private readonly bodies: InstancedMesh;
   private readonly heads: InstancedMesh;
+  /** Every player drawn, as a figure or not, unseen: what playerAt casts its ray at. */
+  private readonly pickBodies: InstancedMesh;
+  private readonly pickHeads: InstancedMesh;
   private readonly discs: InstancedMesh;
   private readonly rings: InstancedMesh;
   private readonly decayRings: InstancedMesh;
@@ -288,6 +303,12 @@ export class Render3D implements FieldRenderer {
   private labelK = 1;
   private appliedLabelK = 1;
   private readonly overlays = new Overlays();
+  /** The players as human figures (figures/), or null: the cylinders. */
+  private playerModel: PlayerModel = 'simple';
+  private figures: Figures | null = null;
+  private figureInputs: FigureInput[] = [];
+  /** The game's time of the last draw (s), for the figures' animations. */
+  private lastGameTime: number | null = null;
   private readonly cards: Sprite[] = [];
   private readonly sectors: Mesh[] = [];
   private readonly sectorGeometries = new Map<number, BufferGeometry>();
@@ -306,6 +327,7 @@ export class Render3D implements FieldRenderer {
   private drawnPlayers: PlayerState[] = [];
   private counts = {
     players: 0,
+    cylinders: 0,
     numbers: 0,
     fadingNumbers: 0,
     facings: 0,
@@ -370,6 +392,9 @@ export class Render3D implements FieldRenderer {
       );
     this.bodies = this.instanced(new CylinderGeometry(1, 1, 1, 20), lambert());
     this.heads = this.instanced(new SphereGeometry(HEAD_RADIUS, 16, 12), lambert());
+    const unseen = () => this.track(new MeshBasicMaterial({ visible: false }));
+    this.pickBodies = this.instanced(new CylinderGeometry(1, 1, 1, 8), unseen());
+    this.pickHeads = this.instanced(new SphereGeometry(HEAD_RADIUS, 8, 6), unseen());
     this.discs = this.instanced(new CircleGeometry(1, 32).rotateX(-Math.PI / 2), flat(0.45), 1);
     this.rings = this.instanced(new RingGeometry(0.92, 1.08, 40).rotateX(-Math.PI / 2), flat(1), 2);
     this.decayRings = this.instanced(
@@ -504,6 +529,7 @@ export class Render3D implements FieldRenderer {
     this.updatePlayers(frame, store, view, sp);
     this.updateViewAreas(frame, view, sp);
     this.updateBall(frame, view, sp);
+    this.updateFigures(scene, sp);
     this.overlays.update(
       frame,
       view,
@@ -566,11 +592,11 @@ export class Render3D implements FieldRenderer {
     this.camera.updateMatrixWorld();
     ray.setFromCamera(ndc, this.camera);
     // The instances move: their bounds, which the ray tests first, too.
-    for (const mesh of [this.bodies, this.heads]) {
+    for (const mesh of [this.pickBodies, this.pickHeads]) {
       mesh.computeBoundingSphere();
       mesh.computeBoundingBox();
     }
-    const hit = ray.intersectObjects([this.bodies, this.heads], false)[0];
+    const hit = ray.intersectObjects([this.pickBodies, this.pickHeads], false)[0];
     const p = hit?.instanceId === undefined ? undefined : this.drawnPlayers[hit.instanceId];
     return p ? { side: p.side, unum: p.unum, x: p.x, y: p.y } : null;
   }
@@ -580,6 +606,7 @@ export class Render3D implements FieldRenderer {
     this.largeView.geometry.dispose();
     this.stadium.dispose();
     this.overlays.dispose();
+    this.figures?.dispose();
     for (const d of this.disposables) {
       d.dispose();
     }
@@ -638,6 +665,37 @@ export class Render3D implements FieldRenderer {
     this.onInvalidate?.();
   }
 
+  /**
+   * The players as the cylinders (simple) or as human figures (figures/),
+   * whose model is loaded when chosen (the cylinders until it is ready).
+   */
+  setPlayerModel(model: PlayerModel): void {
+    if (model === this.playerModel) {
+      return;
+    }
+    this.playerModel = model;
+    if (this.figures) {
+      this.scene.remove(this.figures.group);
+      this.figures.dispose();
+      this.figures = null;
+    }
+    const use = (f: Figures) => {
+      if (this.playerModel !== model) {
+        f.dispose();
+        return;
+      }
+      this.figures = f;
+      this.scene.add(f.group);
+      this.onInvalidate?.();
+    };
+    if (model === 'figure') {
+      void import('./figures/gltf').then((m) => {
+        use(new m.GltfFigures(m.MANNEQUIN, () => this.onInvalidate?.()));
+      });
+    }
+    this.onInvalidate?.();
+  }
+
   /** Shows or hides the boards around the pitch and the banners behind the goals. */
   setStadium(shown: { boards: boolean; banners: boolean }): void {
     this.stadium.show(shown);
@@ -680,6 +738,7 @@ export class Render3D implements FieldRenderer {
       ...this.counts,
       staminaBars: this.staminaBars,
       overlays: this.overlays.inspect(),
+      figures: this.figures?.inspect() ?? null,
       labels: this.numbers.map((s, i) => (s.visible ? (this.numberTexts[i] ?? '') : '')),
       numberPositions: this.numbers.map((s) => (s.visible ? world(s.position) : null)),
       numberHeight: LABEL_SCALE * this.labelK,
@@ -1038,13 +1097,19 @@ export class Render3D implements FieldRenderer {
       }
     }
     const color = this.color;
+    // Figures, once loaded, but not from above (the cylinders show more
+    // there) and not for players whose directions the player camera's
+    // player does not know (a figure would show them).
+    const figures = (this.figures?.inspect().ready ?? false) && this.mode !== 'top';
     let n = 0;
+    let cylinders = 0;
     let facings = 0;
     let rings = 0;
     let decays = 0;
     let cards = 0;
     let unknownTeams = 0;
     const drawn: PlayerState[] = [];
+    const figureInputs: FigureInput[] = [];
     const barred: PlayerState[] = [];
     const o2 = view.options;
     // Others' stamina is not in what the server tells a player.
@@ -1075,23 +1140,34 @@ export class Render3D implements FieldRenderer {
       const size = playerSize(view.options, sp, type);
       const selected = view.isSelected(p.side, p.unum);
       const barsOver = hasBars(p, selected);
-      const labelHeight = NUMBER_HEIGHT + (barsOver ? BAR_LIFT : 0);
+      const asFigure = figures && seen.facing;
+      const s = asFigure ? FIGURE_SCALE : 1;
+      const labelHeight = NUMBER_HEIGHT * s + (barsOver ? BAR_LIFT : 0);
       const style = playerStyle(view.colors, view.options, sp, type, p, selected);
       const teamColor = (c: string) => color.set(c).lerp(this.unknownTeam, 1 - seen.team);
 
       o.rotation.set(0, 0, 0);
-      o.position.set(p.x, BODY_HEIGHT / 2, p.y);
-      o.scale.set(size.body, BODY_HEIGHT, size.body);
+      o.position.set(p.x, (BODY_HEIGHT * s) / 2, p.y);
+      o.scale.set(size.body * s, BODY_HEIGHT * s, size.body * s);
       o.updateMatrix();
       teamColor(style.body);
-      this.bodies.setMatrixAt(n, o.matrix);
-      this.bodies.setColorAt(n, color);
+      this.pickBodies.setMatrixAt(n, o.matrix);
+      if (!asFigure) {
+        this.bodies.setMatrixAt(cylinders, o.matrix);
+        this.bodies.setColorAt(cylinders, color);
+      } else {
+        figureInputs.push({ index: i, player: p, color: color.clone() });
+      }
 
-      o.position.set(p.x, HEAD_HEIGHT, p.y);
-      o.scale.set(1, 1, 1);
+      o.position.set(p.x, HEAD_HEIGHT * s, p.y);
+      o.scale.setScalar(s);
       o.updateMatrix();
-      this.heads.setMatrixAt(n, o.matrix);
-      this.heads.setColorAt(n, color);
+      this.pickHeads.setMatrixAt(n, o.matrix);
+      if (!asFigure) {
+        this.heads.setMatrixAt(cylinders, o.matrix);
+        this.heads.setColorAt(cylinders, color);
+        ++cylinders;
+      }
 
       // The circle on the ground, in the team or state color, as the 2D outer circle.
       o.position.set(p.x, 0.02, p.y);
@@ -1118,7 +1194,8 @@ export class Render3D implements FieldRenderer {
         ++decays;
       }
 
-      if (seen.facing) {
+      // The figures show where they face themselves.
+      if (seen.facing && !asFigure) {
         o.scale.set(1, 1, 1);
         o.position.set(p.x, BODY_HEIGHT * 0.7, p.y);
         o.rotation.set(0, yaw(p.body), 0);
@@ -1170,6 +1247,7 @@ export class Render3D implements FieldRenderer {
       ++n;
     }
     this.drawnPlayers = drawn;
+    this.figureInputs = figureInputs;
     this.barred = barred;
     const done = (mesh: InstancedMesh, count: number) => {
       mesh.count = count;
@@ -1178,9 +1256,11 @@ export class Render3D implements FieldRenderer {
         mesh.instanceColor.needsUpdate = true;
       }
     };
-    for (const mesh of [this.bodies, this.heads, this.discs]) {
+    for (const mesh of [this.pickBodies, this.pickHeads, this.discs]) {
       done(mesh, n);
     }
+    done(this.bodies, cylinders);
+    done(this.heads, cylinders);
     done(this.noses, facings);
     done(this.faces, facings);
     done(this.rings, rings);
@@ -1209,6 +1289,7 @@ export class Render3D implements FieldRenderer {
     this.counts = {
       ...this.counts,
       players: n,
+      cylinders,
       numbers,
       fadingNumbers,
       facings,
@@ -1329,6 +1410,34 @@ export class Render3D implements FieldRenderer {
       }
     }
     this.staminaBars = bars;
+  }
+
+  /**
+   * The human figures of the players updatePlayers chose for them, by the
+   * game's time: the animations stop with the pause and speed up with fast
+   * forward.
+   */
+  private updateFigures(scene: SceneSnapshot | null, sp: ServerParam): void {
+    const figures = this.figures;
+    const step = (sp.simulator_step || 100) / 1000;
+    const gameTime = scene ? (scene.frameIndex + scene.alpha) * step : 0;
+    const last = this.lastGameTime;
+    this.lastGameTime = gameTime;
+    const dt = last === null ? 0 : gameTime - last;
+    if (!figures) {
+      return;
+    }
+    figures.update(this.figureInputs, {
+      store: scene?.store ?? null,
+      frameIndex: scene?.frameIndex ?? 0,
+      next: scene?.next,
+      alpha: scene?.alpha ?? 0,
+      // Backward or a jump (more than a second): no animation step.
+      dt: dt < 0 || dt > 1 ? 0 : dt,
+      step,
+      tackleCycles: sp.tackle_cycles,
+      catchCycles: sp.catch_ban_cycle,
+    });
   }
 
   /** The view areas (V): every player's within the visible distance, the selected player's to 60 m. */
