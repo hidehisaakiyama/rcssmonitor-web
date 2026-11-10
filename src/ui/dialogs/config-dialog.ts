@@ -801,7 +801,7 @@ export class ConfigDialog {
             apply();
             this.refresh();
           },
-          `Set the first, plain player camera: ${defaultPlayerCamera()}`,
+          `Set the default player camera: ${defaultPlayerCamera()}`,
         ),
       ),
     );

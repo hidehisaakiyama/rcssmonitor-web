@@ -33,8 +33,20 @@ const alive = (i: number, extra: Partial<PlayerState> = {}): PlayerState => ({
   ...extra,
 });
 
+/** The first, plain camera, which the tests start from. */
+const PLAIN: PlayerCameraOptions = {
+  position: 'eye',
+  direction: 'head',
+  motion: 'instant',
+  fov: 'view',
+  sight: 'all',
+  timeConstant: 0.5,
+  maxTurn: 90,
+  fixedFov: 90,
+};
+
 const options = (o: Partial<PlayerCameraOptions> = {}): PlayerCameraOptions => ({
-  ...DEFAULT_PLAYER_CAMERA,
+  ...PLAIN,
   ...o,
 });
 
@@ -84,12 +96,37 @@ const lookingAround = (t: number) => {
 };
 
 describe('the player camera', () => {
-  it('is by default the first, plain one: the eyes, the face at once, as wide as the view', () => {
+  it('is by default over the shoulder, smooth, 120 degrees wide, by the server rules', () => {
+    expect(DEFAULT_PLAYER_CAMERA).toEqual({
+      ...PLAIN,
+      position: 'shoulder',
+      motion: 'smooth',
+      fov: 'fixed',
+      sight: 'server',
+      fixedFov: 120,
+    });
+    const { pose } = new PlayerCamera().update(
+      alive(0, { x: 3, y: 4, body: 60, neck: 30, viewWidth: 60 }),
+      1,
+      DEFAULT_PLAYER_CAMERA,
+      0,
+    );
+    // At once at first: behind the face direction (90 degrees, +y), above.
+    expect(pose.position.x).toBeCloseTo(3);
+    expect(pose.position.y).toBe(SHOULDER.height);
+    expect(pose.position.z).toBeCloseTo(4 - SHOULDER.behind);
+    expect(pose.fov).toBeCloseTo(120); // not the view width (aspect 1)
+    // Then no faster than 90 degrees a second, though the neck swings.
+    const frames = run(new PlayerCamera(), DEFAULT_PLAYER_CAMERA, 5, lookingAround);
+    expect(fastestTurn(frames)).toBeLessThanOrEqual(90 + 1e-6);
+  });
+
+  it('can still be the first, plain one: the eyes, the face at once, as wide as the view', () => {
     const camera = new PlayerCamera();
     const { pose, settled } = camera.update(
       alive(0, { x: 3, y: 4, body: 60, neck: 30, viewWidth: 120 }),
       1,
-      DEFAULT_PLAYER_CAMERA,
+      PLAIN,
       0,
     );
     expect(pose.position).toEqual({ x: 3, y: EYE_HEIGHT, z: 4 });
@@ -98,10 +135,10 @@ describe('the player camera', () => {
     expect(pose.fov).toBeCloseTo(120); // aspect 1: vertical = horizontal
     expect(settled).toBe(true);
     // 180 degrees is capped.
-    const wide = camera.update(alive(0, { viewWidth: 180 }), 1, DEFAULT_PLAYER_CAMERA, 0);
+    const wide = camera.update(alive(0, { viewWidth: 180 }), 1, PLAIN, 0);
     expect(wide.pose.fov).toBeCloseTo(120);
     // And it swings as fast as the neck: 180 degrees a cycle.
-    const plain = run(new PlayerCamera(), DEFAULT_PLAYER_CAMERA, 2, lookingAround);
+    const plain = run(new PlayerCamera(), PLAIN, 2, lookingAround);
     expect(fastestTurn(plain)).toBeCloseTo(1800, 0);
   });
 
@@ -241,30 +278,31 @@ describe("the player camera's sight", () => {
 });
 
 describe("the player camera's settings", () => {
-  it('start as the plain camera and take the URL', () => {
+  it('start as the defaults and take the URL', () => {
     const t = defaultTargets();
     expect(playerCameraOptions(t.app)).toEqual(DEFAULT_PLAYER_CAMERA);
     const url = settingsFromUrl(
       new URLSearchParams(
-        'player-camera-position=shoulder&player_camera_motion=smooth&player_camera_max_turn=120' +
-          '&player_camera_fov=wide&player_camera_sight=server&player_camera_time_constant=9',
+        'player-camera-position=eye&player_camera_motion=instant&player_camera_max_turn=120' +
+          '&player_camera_fov=wide&player_camera_sight=view&player_camera_time_constant=9',
       ),
     );
     expect(url).toEqual({
-      player_camera_position: 'shoulder',
-      player_camera_motion: 'smooth',
+      player_camera_position: 'eye',
+      player_camera_motion: 'instant',
       player_camera_max_turn: 120,
-      player_camera_sight: 'server',
+      player_camera_sight: 'view',
       player_camera_time_constant: 9,
     });
     // At most 5 s.
     expect(applySettings(t, url)).not.toContain('player_camera_time_constant');
     expect(playerCameraOptions(t.app)).toMatchObject({
-      position: 'shoulder',
-      motion: 'smooth',
+      position: 'eye',
+      motion: 'instant',
       maxTurn: 120,
-      sight: 'server',
-      fov: 'view',
+      sight: 'view',
+      fov: 'fixed',
+      timeConstant: 0.5,
     });
     resetPlayerCamera(t.app);
     expect(playerCameraOptions(t.app)).toEqual(DEFAULT_PLAYER_CAMERA);

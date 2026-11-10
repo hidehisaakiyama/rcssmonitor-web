@@ -38,7 +38,7 @@ Changing the play mode from the monitor needs the coach mode (`server::coach=tru
 - **Live**: Monitor > Connect to ... (host, port and path; the default is `localhost:6080/monitor`), or Monitor > Connect (Ctrl+C) to connect again to the last server. While connected, the view follows the newest frame (live mode, Ctrl+L); step back to look at earlier frames.
 - **Referee**: the Referee menu, and the pop-up menu of the field (right click) for commands at a point.
 - **View**: View > Preference (Ctrl+V), View > Player Type List (Ctrl+H), Help > Shortcut Keys.
-- **3D view**: View > 3D View (D), with six cameras under View > 3D Camera (E for the next one): free (drag to turn, Shift+drag to move, wheel to zoom), broadcast, top, behind either goal, and the selected player's. It needs WebGL. The 3D tab of View > Preference sets how the player camera moves and what it draws (everything, the view cone only, or what rcssserver tells the player); these styles are still being compared.
+- **3D view**: View > 3D View (D), with six cameras under View > 3D Camera (E for the next one): free (drag to turn, Shift+drag to move, wheel to zoom), broadcast, top, behind either goal, and the selected player's. It needs WebGL. The player camera looks over the player's shoulder, turns smoothly with its face and draws only what rcssserver tells the player; the 3D tab of View > Preference sets other styles (e.g. at the eyes, or drawing everything).
 
 URL parameters stand in for rcssmonitor's command line options, with the same names (also written with `-`). For example:
 

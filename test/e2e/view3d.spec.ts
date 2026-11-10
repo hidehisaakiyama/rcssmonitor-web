@@ -242,11 +242,12 @@ test('switches the cameras', async ({ page }) => {
   await page.keyboard.press('e'); // next: behind the left goal
   await expect(page.locator('#camera-select')).toHaveValue('goal-left');
 
-  // The player camera: a hint without a selected player, then its eyes.
+  // The player camera: a hint without a selected player, then over its
+  // shoulder (by default): 6 m behind it, 3 m high.
   await page.locator('#camera-select').selectOption('player');
   await expect(page.locator('#status-message')).toContainText('Select a player');
   await page.keyboard.press('5');
-  const eye = await hook(page, (h) => {
+  const at = await hook(page, (h) => {
     const p = (
       h.field as unknown as {
         gameStore: { frame(i: number): { players: { x: number; y: number }[] } };
@@ -255,8 +256,12 @@ test('switches the cameras', async ({ page }) => {
     return { x: p?.x, y: p?.y };
   });
   await expect
-    .poll(async () => (await camera())?.position)
-    .toEqual({ x: eye.x, y: 1.65, z: eye.y });
+    .poll(async () => {
+      const c = (await camera())?.position;
+      const behind = c && Math.hypot(c.x - (at.x ?? 0), c.z - (at.y ?? 0));
+      return c && { y: c.y, behind: Math.round((behind ?? 0) * 1000) / 1000 };
+    })
+    .toEqual({ y: 3, behind: 6 });
 
   // Dragging the broadcast camera makes it free.
   await page.locator('#camera-select').selectOption('broadcast');
@@ -313,15 +318,33 @@ test('chooses the player camera styles in the preference dialog', async ({ page 
     h.view.selectPlayer(1);
   });
   const camera = async () => (await scene(page))?.camera;
-  // The plain camera: at the eyes, the view width (90) as the field of view.
-  await expect.poll(async () => (await camera())?.position).toEqual({ x: 0, y: 1.65, z: 0 });
+  // The vertical field of view for a horizontal one depends on the shape of the canvas.
+  const aspect = await hook(page, (h) => {
+    const c = h.field.renderer.canvas;
+    return c.clientWidth / c.clientHeight;
+  });
+  const vertical = (h: number) =>
+    2 * Math.atan(Math.tan((h / 2) * (Math.PI / 180)) / aspect) * (180 / Math.PI);
+
+  // The default: over the shoulder, 120 degrees wide, by the server rules.
+  await expect.poll(async () => (await camera())?.position.y).toBe(3);
+  const p = await camera();
+  expect(p?.position.x).toBeCloseTo(-6); // behind
+  expect(p?.position.z).toBeCloseTo(0);
+  expect(p?.fov).toBeCloseTo(vertical(120), 3);
+  // The player itself and the 4 it perceives (not the 15 not connected).
+  expect((await scene(page))?.players).toBe(5);
 
   await page.keyboard.press('Control+v');
   await page.locator('#config-tab-3d').click();
-  await expect(page.locator('#config-player-camera-position-eye')).toBeChecked();
+  for (const id of ['position-shoulder', 'direction-head', 'motion-smooth', 'fov-fixed']) {
+    await expect(page.locator(`#config-player-camera-${id}`)).toBeChecked();
+  }
+  await expect(page.locator('#config-player-camera-sight-server')).toBeChecked();
+  await expect(page.locator('#config-player-camera-fixed-fov')).toHaveValue('120');
   // The note below a row describes the chosen style; every style has a tooltip.
   const positionHint = page.locator('#config-player-camera-position-hint');
-  await expect(positionHint).toContainText('At the eyes, 1.65 m high');
+  await expect(positionHint).toContainText('6 m behind the player');
   await expect(page.locator('label:has(#config-player-camera-motion-smooth)')).toHaveAttribute(
     'title',
     /at most ω·Δt/,
@@ -330,46 +353,40 @@ test('chooses the player camera styles in the preference dialog', async ({ page 
     'title',
     /fastest/,
   );
-  await page.locator('#config-player-camera-position-shoulder').check();
-  await expect(positionHint).toContainText('6 m behind the player');
-  await expect.poll(async () => (await camera())?.position.y).toBe(3);
-  const p = await camera();
-  expect(p?.position.x).toBeCloseTo(-6); // behind
-  expect(p?.position.z).toBeCloseTo(0);
-  // Over the shoulder, the player is drawn too (and the 15 not connected, in black).
-  expect((await scene(page))?.players).toBe(22);
+  await expect(page.locator('#config-player-camera-default')).toHaveAttribute(
+    'title',
+    /Over the Shoulder, Head \(Body \+ Neck\), Smooth, Fixed, Server Rules, τ 0\.5 s, ω 90°\/s, Fixed 120°/,
+  );
 
+  // The first, plain camera can still be chosen: at the eyes, as wide as the view (90).
+  await page.locator('#config-player-camera-position-eye').check();
+  await expect(positionHint).toContainText('At the eyes, 1.65 m high');
+  await expect.poll(async () => (await camera())?.position).toEqual({ x: 0, y: 1.65, z: 0 });
+  await page.locator('#config-player-camera-fov-view').check();
+  await expect.poll(async () => (await camera())?.fov).toBeCloseTo(vertical(90), 3);
+  // Or fixed at another width.
   await page.locator('#config-player-camera-fov-fixed').check();
   await page.locator('#config-player-camera-fixed-fov').fill('60');
   await page.locator('#config-player-camera-fixed-fov').press('Enter');
-  // Horizontal 60 degrees: the vertical one depends on the shape of the canvas.
-  const aspect = await hook(page, (h) => {
-    const c = h.field.renderer.canvas;
-    return c.clientWidth / c.clientHeight;
-  });
-  const vertical = 2 * Math.atan(Math.tan(Math.PI / 6) / aspect) * (180 / Math.PI);
-  await expect.poll(async () => (await camera())?.fov).toBeCloseTo(vertical, 3);
+  await expect.poll(async () => (await camera())?.fov).toBeCloseTo(vertical(60), 3);
 
-  // Kept, and the default is the plain camera again.
+  // Kept, and Default sets the defaults again.
   await page.reload();
   await wait3d(page);
   await page.keyboard.press('Control+v');
   await page.locator('#config-tab-3d').click();
-  await expect(page.locator('#config-player-camera-position-shoulder')).toBeChecked();
-  await expect(page.locator('#config-player-camera-fixed-fov')).toHaveValue('60');
-  await expect(positionHint).toContainText('6 m behind the player');
-  await expect(page.locator('#config-player-camera-default')).toHaveAttribute(
-    'title',
-    /Eyes, Head \(Body \+ Neck\), Instant, View Width, Everything, τ 0\.5 s, ω 90°\/s, Fixed 90°/,
-  );
-  await page.locator('#config-player-camera-default').click();
   await expect(page.locator('#config-player-camera-position-eye')).toBeChecked();
-  await expect(page.locator('#config-player-camera-fov-view')).toBeChecked();
+  await expect(page.locator('#config-player-camera-fixed-fov')).toHaveValue('60');
   await expect(positionHint).toContainText('At the eyes');
+  await page.locator('#config-player-camera-default').click();
+  await expect(page.locator('#config-player-camera-position-shoulder')).toBeChecked();
+  await expect(page.locator('#config-player-camera-fov-fixed')).toBeChecked();
+  await expect(page.locator('#config-player-camera-fixed-fov')).toHaveValue('120');
+  await expect(positionHint).toContainText('6 m behind the player');
 });
 
 test("draws only what the player camera's player perceives", async ({ page }) => {
-  await openApp(page, '?view_3d=on&camera_3d=player&player_camera_sight=server');
+  await openApp(page, '?view_3d=on&camera_3d=player&player_camera_position=eye');
   await wait3d(page);
   await page.setInputFiles('#rcg-file', {
     name: 'sight.rcg',
@@ -393,7 +410,7 @@ test("draws only what the player camera's player perceives", async ({ page }) =>
       }
     );
   };
-  // Server rules, at the eyes (the player itself is not drawn): the left 2,
+  // Server rules (the default), at the eyes (the player itself is not drawn): the left 2,
   // 3, the right 1 in view, the right 2 felt in gray; the ball felt.
   await expect.poll(seen).toEqual({
     players: 4,

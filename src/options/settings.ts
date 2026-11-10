@@ -104,7 +104,7 @@ const PLAYER_CAMERA_KEYS = [
   'playerCameraFixedFov',
 ] as const satisfies readonly (keyof AppSettings)[];
 
-/** The player camera's settings back to the defaults (the first, plain camera). */
+/** The player camera's settings back to the defaults. */
 export function resetPlayerCamera(app: AppSettings): void {
   for (const key of PLAYER_CAMERA_KEYS) {
     Object.assign(app, { [key]: DEFAULT_APP_SETTINGS[key] });
