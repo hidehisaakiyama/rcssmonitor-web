@@ -57,16 +57,40 @@ const hook = <T>(page: Page, f: (h: Hook) => T) =>
 const kind = (page: Page) => hook(page, (h) => h.field.renderer.kind);
 const scene = (page: Page) => hook(page, (h) => h.field.renderer.inspect?.());
 
+/** The app's message when the 3D view cannot open (app.ts set3d). */
+const NOT_AVAILABLE = 'The 3D view is not available';
+
 /**
  * Waits until the 3D view has drawn. If it does not open, the error says
  * why, as the app tells on the status bar (e.g. no WebGL).
+ *
+ * Headless Firefox on the CI's software rendering now and then fails to
+ * create a WebGL context, and the app stays 2D. Only then, it tries once
+ * more with the 3D button (noted in the report); a second failure fails.
  */
 async function wait3d(page: Page): Promise<void> {
-  try {
-    await expect.poll(() => kind(page)).toBe('3d');
-  } catch (e) {
-    const why = await page.locator('#status-message').textContent();
-    throw new Error(`the 3D view did not open: ${why ?? '(no message)'}`, { cause: e });
+  const status = page.locator('#status-message');
+  const open = async (): Promise<string | null> => {
+    try {
+      await expect
+        .poll(
+          async () =>
+            (await kind(page)) === '3d' || (await status.textContent())?.includes(NOT_AVAILABLE),
+        )
+        .toBe(true);
+    } catch {
+      return (await status.textContent()) ?? '(no message)';
+    }
+    return (await kind(page)) === '3d' ? null : ((await status.textContent()) ?? '');
+  };
+  let failed = await open();
+  if (failed?.includes('Error creating WebGL context')) {
+    test.info().annotations.push({ type: 'warning', description: `3D view, first try: ${failed}` });
+    await page.locator('#view-3d-button').click();
+    failed = await open();
+  }
+  if (failed !== null) {
+    throw new Error(`the 3D view did not open: ${failed}`);
   }
   await expect.poll(async () => (await scene(page))?.drawCalls ?? 0).toBeGreaterThan(0);
 }
@@ -583,4 +607,33 @@ test('paints the ends in the team colors and shows the compass and the minimap',
   await page.locator('#view-3d-button').click();
   await expect.poll(() => kind(page)).toBe('2d');
   await expect.poll(async () => await guides()).toEqual({ compass: null, minimap: null });
+});
+
+test('stays 2D when WebGL fails, and can try again', async ({ page }) => {
+  // The first WebGL context cannot be created, as now and then on the CI.
+  await page.addInitScript(() => {
+    const proto = HTMLCanvasElement.prototype as unknown as {
+      getContext: (this: HTMLCanvasElement, type: string, ...rest: unknown[]) => unknown;
+    };
+    const get = proto.getContext;
+    let failed = false;
+    proto.getContext = function (type, ...rest) {
+      if (!failed && type.startsWith('webgl')) {
+        failed = true;
+        return null;
+      }
+      return get.call(this, type, ...rest);
+    };
+  });
+  await openApp(page);
+  await page.keyboard.press('d');
+  await expect(page.locator('#status-message')).toContainText(
+    `${NOT_AVAILABLE}: THREE.WebGLRenderer: Error creating WebGL context`,
+  );
+  expect(await kind(page)).toBe('2d');
+  await expect(page.locator('#view-3d-button')).toHaveAttribute('aria-pressed', 'false');
+  // wait3d tries again with the 3D button, which opens it this time.
+  await wait3d(page);
+  await expect(page.locator('#view-3d-button')).toHaveAttribute('aria-pressed', 'true');
+  expect(test.info().annotations.some((a) => a.description?.includes('first try'))).toBe(true);
 });
