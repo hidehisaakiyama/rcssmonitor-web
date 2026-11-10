@@ -31,6 +31,7 @@ rcssmonitor (Qt 版) の機能と、rcssmonitor-web での扱いをまとめた�
 | Yellow / Red Card | main_window.cpp:2166-2267 | 4 | 済 | 右クリックメニューから。ダイアログで選手を選ぶ。右クリックした位置から 3 m 以内の選手をあらかじめ選んでおく (rcssmonitor は空欄)。送信前に unum が 1〜11 かを検証する |
 | Change Playmode (ボール位置の補正つき) | main_window.cpp:2294-2454 | 4 | 済 | 右クリックメニューのサブメニュー (16 モード)。server_param の `coach` / `coach_w_referee` が偽なら無効にして理由を示す。back_pass で何も送られない不具合を直した |
 | 接続していないときの右クリックメニュー | field_canvas.cpp:273 | 4 | 済 | rcssmonitor は項目を有効のまま表示して何もしない。Web 版は項目を無効にして理由を示す |
+| 3D 表示での右クリック | (rcssmonitor にない) | 6 | 済 | カメラからの光線が選手の体か頭に当たれば、その選手 (カードの対象) と足元の位置。当たらなければ地面との交点で、ピッチとマージンの外や地平線より上は位置なしとし、Drop Ball と Free Kick を無効にして理由を示す。そのとき Change Playmode はボールの位置から決める |
 | 選手のドラッグ移動 (`dispplayer`) | (未使用) | 将来 | 対象外 | 初回の正式リリース (20.0.0) の対象外 (将来の拡張)。rcssmonitor でも UI がない |
 | 選手の退場 (`dispdiscard`) | (未使用) | — | 対象外 | |
 

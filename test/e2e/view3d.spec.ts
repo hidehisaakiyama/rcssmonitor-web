@@ -1,4 +1,8 @@
 import { expect, test, type Page } from '@playwright/test';
+import { Side } from '../../src/core/constants';
+import type { Vec2 } from '../../src/core/geometry';
+import { dispFoul } from '../../src/io/live/commands';
+import type { FieldTarget } from '../../src/ui/field-view';
 import type { ViewState } from '../../src/view/view-state';
 import { ReplayServer } from '../../tools/replay-server/replay-server';
 import { fixture, loadLog, openApp, requireBuild } from './helpers';
@@ -636,4 +640,151 @@ test('stays 2D when WebGL fails, and can try again', async ({ page }) => {
   await wait3d(page);
   await expect(page.locator('#view-3d-button')).toHaveAttribute('aria-pressed', 'true');
   expect(test.info().annotations.some((a) => a.description?.includes('first try'))).toBe(true);
+});
+
+interface AimHook {
+  field: {
+    element: HTMLElement;
+    renderer: { fieldToScreen(x: number, y: number, height?: number): Vec2 | null };
+    targetAt(clientX: number, clientY: number): FieldTarget;
+  };
+}
+
+/** The window point of a field point at a height, in 3D. */
+const windowOf = (page: Page, x: number, y: number, height = 0) =>
+  page.evaluate(
+    ({ x, y, height }) => {
+      const field = (window.rcssmonitorWeb as AimHook).field;
+      const r = field.element.getBoundingClientRect();
+      const s = field.renderer.fieldToScreen(x, y, height);
+      return s && { x: r.left + s.x, y: r.top + s.y };
+    },
+    { x, y, height },
+  );
+
+/** What a right click at a field point at a height aims at. */
+async function aimAt(page: Page, x: number, y: number, height = 0): Promise<FieldTarget | null> {
+  const w = await windowOf(page, x, y, height);
+  return (
+    w && page.evaluate(({ x, y }) => (window.rcssmonitorWeb as AimHook).field.targetAt(x, y), w)
+  );
+}
+
+test('aims a right click at the player under it, or at the ground near the pitch', async ({
+  page,
+}) => {
+  await openApp(
+    page,
+    '?view_3d=on&camera_3d=player&player_camera_position=eye&player_camera_sight=all',
+  );
+  await wait3d(page);
+  await page.setInputFiles('#rcg-file', {
+    name: 'sight.rcg',
+    mimeType: 'application/json',
+    buffer: Buffer.from(SIGHT),
+  });
+  await expect(page.locator('#load-result')).toContainText('2 frames');
+  await hook(page, (h) => {
+    h.view.selectPlayer(1);
+  });
+  // At the eyes of the left 1 at the center, looking along +x.
+  await expect
+    .poll(async () => (await scene(page))?.camera.position)
+    .toEqual({
+      x: 0,
+      y: 1.65,
+      z: 0,
+    });
+  const l2 = { point: { x: 10, y: 0 }, player: { side: Side.Left, unum: 2 } };
+  // The head of the left 2, 10 m ahead, at the height of the eyes: the ray
+  // never meets the ground. The body too.
+  expect(await aimAt(page, 10, 0, 1.65)).toEqual(l2);
+  expect(await aimAt(page, 10, 0, 0.7)).toEqual(l2);
+  expect((await aimAt(page, 30, 5, 0.7))?.player).toEqual({ side: Side.Left, unum: 3 });
+  // The ground where no player is.
+  const ground = await aimAt(page, 8, -3);
+  expect(ground?.player).toBeNull();
+  expect(ground?.point?.x).toBeCloseTo(8, 0);
+  expect(Math.abs((ground?.point?.y ?? 0) + 3)).toBeLessThan(0.3);
+  // Nothing: the ground far beyond the pitch, or the sky.
+  expect(await aimAt(page, 80, -15)).toEqual({ point: null, player: null });
+  expect(await aimAt(page, 20, 0, 30)).toEqual({ point: null, player: null });
+});
+
+test('sends the referee commands aimed in 3D', async ({ page }) => {
+  const server = await ReplayServer.fromFile(fixture('json-sample.rcg.gz'), {
+    host: '127.0.0.1',
+    interval: 20,
+    coach: true,
+  });
+  try {
+    const port = await server.listen();
+    await openApp(page, `?connect=1&host=127.0.0.1&port=${port}&view_3d=on&camera_3d=broadcast`);
+    await expect(page.locator('#connection-status')).toContainText('Connected');
+    await wait3d(page);
+    await page.keyboard.press('ArrowLeft'); // stay on one frame
+    const commands = () => server.commands.map((c) => c.text);
+    const box = await page.locator('.field-view').boundingBox();
+    if (!box) {
+      throw new Error('no field view');
+    }
+
+    // Far beyond the pitch: no point to put the ball at; Change Playmode
+    // starts from the ball.
+    await page.mouse.click(box.x + box.width / 2, box.y + 12, { button: 'right' });
+    await expect(page.locator('#menu-drop-ball')).toBeDisabled();
+    await expect(page.locator('#menu-drop-ball')).toHaveAttribute('title', /pitch or its margin/);
+    await expect(page.locator('#menu-free-kick-left')).toBeDisabled();
+    await expect(page.locator('#menu-change-playmode')).toBeEnabled();
+    await expect(page.locator('#menu-yellow-card')).toBeEnabled();
+    await page.keyboard.press('Escape');
+
+    // On the head of the player nearest to the camera (nothing in front of
+    // it): the card dialog chooses it.
+    const nearest = await page.evaluate(() => {
+      const h = window.rcssmonitorWeb as {
+        field: {
+          frameIndex: number;
+          gameStore: {
+            frame(i: number): {
+              players: { side: number; unum: number; x: number; y: number; state: number }[];
+            };
+          } | null;
+          renderer: { inspect(): { camera: { position: { x: number; y: number; z: number } } } };
+        };
+      };
+      const c = h.field.renderer.inspect().camera.position;
+      const players = h.field.gameStore?.frame(h.field.frameIndex).players ?? [];
+      const alive = players.filter((p) => p.state !== 0);
+      alive.sort((a, b) => Math.hypot(a.x - c.x, a.y - c.z) - Math.hypot(b.x - c.x, b.y - c.z));
+      const p = alive[0];
+      return p && { side: p.side, unum: p.unum, x: p.x, y: p.y };
+    });
+    if (!nearest) {
+      throw new Error('no player');
+    }
+    const head = await windowOf(page, nearest.x, nearest.y, 1.65);
+    if (!head) {
+      throw new Error('the player is not in view');
+    }
+    await page.mouse.click(head.x, head.y, { button: 'right' });
+    await page.locator('#menu-yellow-card').click();
+    await expect(page.locator('#card-player')).toHaveValue(`${nearest.side} ${nearest.unum}`);
+    await page.locator('#card-dialog-ok').click();
+    await expect
+      .poll(() => commands().at(-1))
+      .toBe(`(dispcard ${nearest.side} ${nearest.unum} yellow)`);
+
+    // On the ground: the ball there.
+    const at = await aimAt(page, 10, -5);
+    const w = await windowOf(page, 10, -5);
+    if (!at?.point || !w) {
+      throw new Error('no point on the ground');
+    }
+    await page.mouse.click(w.x, w.y, { button: 'right' });
+    await page.locator('#menu-drop-ball').click();
+    await expect.poll(() => commands().at(-1)).toBe(dispFoul(at.point.x, at.point.y, Side.Neutral));
+  } finally {
+    await server.close();
+  }
 });

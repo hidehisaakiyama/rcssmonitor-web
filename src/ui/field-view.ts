@@ -3,6 +3,7 @@
 // renderer is the 2D one or the 3D one; the 2D mouse operations (dragging
 // the field, the measuring tool, double click) apply to the 2D view only,
 // and the 3D renderer handles the mouse for its camera.
+import { PITCH, type Side } from '../core/constants';
 import type { GameStore } from '../core/game-store';
 import type { Vec2 } from '../core/geometry';
 import { Hud } from '../view/hud/hud';
@@ -10,6 +11,19 @@ import type { Measure } from '../view/render2d/measure-painter';
 import { Render2D } from '../view/render2d/render2d';
 import type { FieldRenderer, SceneSnapshot } from '../view/renderer';
 import type { ViewState } from '../view/view-state';
+
+/** What a click on the field aims at, for the referee commands. */
+export interface FieldTarget {
+  /** The field point; null where there is none (3D: the sky, the ground far away). */
+  readonly point: Vec2 | null;
+  /** The player clicked on (3D); null: the one nearest to the point, if any. */
+  readonly player: { readonly side: Side; readonly unum: number } | null;
+}
+
+/** In 3D, the ground beyond the pitch and its margin is too near the horizon to aim at. */
+const withinMargin = (p: Vec2) =>
+  Math.abs(p.x) <= PITCH.length / 2 + PITCH.margin &&
+  Math.abs(p.y) <= PITCH.width / 2 + PITCH.margin;
 
 /** Mouse button state (rcssmonitor src/mouse_state.h). */
 class MouseState {
@@ -121,6 +135,30 @@ export class FieldView {
   fieldAt(clientX: number, clientY: number): Vec2 {
     const r = this.element.getBoundingClientRect();
     return this.toField({ x: Math.round(clientX - r.left), y: Math.round(clientY - r.top) });
+  }
+
+  /**
+   * What a click at a point in the window aims at. In 2D, the field point
+   * under it. In 3D, a player whose body or head is under it (at its feet),
+   * else the point where the camera's ray meets the ground, on the pitch or
+   * its margin; nothing above the horizon.
+   */
+  targetAt(clientX: number, clientY: number): FieldTarget {
+    const r = this.element.getBoundingClientRect();
+    const p = { x: Math.round(clientX - r.left), y: Math.round(clientY - r.top) };
+    const renderer = this.renderer;
+    if (renderer.kind === '2d') {
+      return { point: this.toField(p), player: null };
+    }
+    const player = renderer.playerAt?.(p.x, p.y) ?? null;
+    if (player) {
+      return {
+        point: { x: player.x, y: player.y },
+        player: { side: player.side, unum: player.unum },
+      };
+    }
+    const ground = renderer.screenToField(p.x, p.y);
+    return { point: ground && withinMargin(ground) ? ground : null, player: null };
   }
 
   setStore(store: GameStore | null): void {

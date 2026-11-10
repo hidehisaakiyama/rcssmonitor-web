@@ -79,7 +79,7 @@ import { DEG2RAD, RAD2DEG, type Vec2 } from '../../core/geometry';
 import { DEFAULT_SERVER_PARAM, type ServerParam } from '../../core/params';
 import { guideShown, type CameraGuide, type GuideMode } from '../hud/guides';
 import { playerStyle } from '../player-style';
-import type { FieldRenderer, SceneSnapshot } from '../renderer';
+import type { FieldRenderer, PlayerHit, SceneSnapshot } from '../renderer';
 import type { ViewState } from '../view-state';
 import {
   broadcastPose,
@@ -210,6 +210,8 @@ export class Render3D implements FieldRenderer {
   private readonly ballMaterial: MeshLambertMaterial;
   private readonly shadow: Mesh;
   private readonly shadowMaterial: MeshBasicMaterial;
+  /** The players drawn, by instance of the bodies and heads, for playerAt(). */
+  private drawnPlayers: PlayerState[] = [];
   private counts = {
     players: 0,
     numbers: 0,
@@ -422,13 +424,35 @@ export class Render3D implements FieldRenderer {
     return hit ? { x: hit.x, y: hit.z } : null;
   }
 
-  fieldToScreen(x: number, y: number): Vec2 | null {
+  /** The canvas point of a field point, at `height` above the ground. */
+  fieldToScreen(x: number, y: number, height = 0): Vec2 | null {
     this.camera.updateMatrixWorld();
-    const v = new Vector3(x, 0, y).project(this.camera);
+    const v = new Vector3(x, height, y).project(this.camera);
     if (v.z > 1) {
       return null; // behind the camera
     }
     return { x: ((v.x + 1) / 2) * this.width, y: ((1 - v.y) / 2) * this.height };
+  }
+
+  /**
+   * The player whose body or head is under a canvas point, the nearest to
+   * the camera: as drawn, so with the player camera's sight only those it
+   * perceives. Without it, a click on a player would aim at the ground
+   * behind it, or at nothing from the eyes.
+   */
+  playerAt(x: number, y: number): PlayerHit | null {
+    const ndc = new Vector2((x / this.width) * 2 - 1, 1 - (y / this.height) * 2);
+    const ray = new Raycaster();
+    this.camera.updateMatrixWorld();
+    ray.setFromCamera(ndc, this.camera);
+    // The instances move: their bounds, which the ray tests first, too.
+    for (const mesh of [this.bodies, this.heads]) {
+      mesh.computeBoundingSphere();
+      mesh.computeBoundingBox();
+    }
+    const hit = ray.intersectObjects([this.bodies, this.heads], false)[0];
+    const p = hit?.instanceId === undefined ? undefined : this.drawnPlayers[hit.instanceId];
+    return p ? { side: p.side, unum: p.unum, x: p.x, y: p.y } : null;
   }
 
   dispose(): void {
@@ -848,6 +872,7 @@ export class Render3D implements FieldRenderer {
     let decays = 0;
     let cards = 0;
     let unknownTeams = 0;
+    const drawn: PlayerState[] = [];
     /** The numbers to draw and their opacity. */
     const numbered = new Map<number, number>();
     const carded = new Set<number>();
@@ -943,8 +968,10 @@ export class Render3D implements FieldRenderer {
           ++cards;
         }
       }
+      drawn.push(p);
       ++n;
     }
+    this.drawnPlayers = drawn;
     const done = (mesh: InstancedMesh, count: number) => {
       mesh.count = count;
       mesh.instanceMatrix.needsUpdate = true;

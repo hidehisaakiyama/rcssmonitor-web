@@ -36,7 +36,7 @@ Changing the play mode from the monitor needs the coach mode (`server::coach=tru
 
 - **Logs**: File > Open Game Log (Ctrl+O), the open button, or drop a file on the window.
 - **Live**: Monitor > Connect to ... (host, port and path; the default is `localhost:6080/monitor`), or Monitor > Connect (Ctrl+C) to connect again to the last server. While connected, the view follows the newest frame (live mode, Ctrl+L); step back to look at earlier frames.
-- **Referee**: the Referee menu, and the pop-up menu of the field (right click) for commands at a point.
+- **Referee**: the Referee menu, and the pop-up menu of the field (right click) for commands at a point. In 3D, a right click on a player aims at that player (for the cards) and its feet; on the ground, at the point on the pitch or its margin.
 - **View**: View > Preference (Ctrl+V), View > Player Type List (Ctrl+H), Help > Shortcut Keys.
 - **3D view**: View > 3D View (D), with six cameras under View > 3D Camera (E for the next one): free (drag to turn, Shift+drag to move, wheel to zoom), broadcast, top, behind either goal, and the selected player's. It needs WebGL. The player camera looks over the player's shoulder, turns smoothly with its face and draws only what rcssserver tells the player; the Player Camera tab of View > Preference sets other styles (e.g. at the eyes, or drawing everything). The goal nets, the boards around the pitch and the banners floating behind the goals are in the team colors (the boards and the banners can be hidden), and a compass and a minimap can be shown (the 3D tab of View > Preference).
 

@@ -21,6 +21,8 @@ import { showCardDialog, type CardTarget } from './dialogs/card-dialog';
 import type { StatusBar } from './statusbar';
 
 const NOT_CONNECTED = 'Connect to a server to use the referee commands.';
+/** In 3D, a click above the horizon or far beyond the pitch. */
+const NO_POINT = 'Right-click on the pitch or its margin to choose where.';
 const NO_COACH_MODE =
   'The server is running without the coach mode (server::coach or server::coach_w_referee).';
 
@@ -78,14 +80,13 @@ export class Referee {
     }
   }
 
-  /** Asks for the player, with the one near `p` chosen, and sends the card. */
-  async card(card: Card, p: Vec2 | null): Promise<void> {
+  /** Asks for the player, with `initial` chosen, and sends the card. */
+  async card(card: Card, initial: CardTarget | null): Promise<void> {
     if (!this.connected) {
       return;
     }
     const frame = this.currentFrame();
     const names = [frame?.teams[0].name ?? '', frame?.teams[1].name ?? ''] as const;
-    const initial = frame && p ? nearestPlayer(frame, p) : null;
     const target = await showCardDialog(this.dialogParent, card, names, initial);
     if (!target) {
       return;
@@ -121,23 +122,34 @@ export class Referee {
     this.status.showMessage(`Change the play mode to ${playModeToString(mode)}`, 3000);
   }
 
-  /** The pop-up menu for a right click at `p` on the field. */
-  menuItems(p: Vec2): MenuItem[] {
+  /**
+   * The pop-up menu for a right click at `p` on the field, on `player` if
+   * one was clicked (3D). Without a point (3D: above the horizon), the ball
+   * cannot be placed, and Change Playmode starts from the ball as in the
+   * Referee menu. The cards choose the player clicked, or the one near `p`.
+   */
+  menuItems(p: Vec2 | null, player: CardTarget | null = null): MenuItem[] {
+    const frame = this.currentFrame();
+    const near = player ?? (frame && p ? nearestPlayer(frame, p) : null);
     return [
-      this.item('menu-drop-ball', 'Drop Ball', () => this.dropBall(p)),
-      this.item('menu-free-kick-left', 'Free Kick Left', () => this.freeKick(Side.Left, p)),
-      this.item('menu-free-kick-right', 'Free Kick Right', () => this.freeKick(Side.Right, p)),
+      this.pointItem('menu-drop-ball', 'Drop Ball', p, (q) => this.dropBall(q)),
+      this.pointItem('menu-free-kick-left', 'Free Kick Left', p, (q) =>
+        this.freeKick(Side.Left, q),
+      ),
+      this.pointItem('menu-free-kick-right', 'Free Kick Right', p, (q) =>
+        this.freeKick(Side.Right, q),
+      ),
       { kind: 'separator' },
-      ...this.cardItems(p, 'menu'),
+      ...this.cardItems(near, 'menu'),
       { kind: 'separator' },
-      this.changePlayModeMenu(p, 'menu'),
+      this.changePlayModeMenu(p ?? this.ball(), 'menu'),
     ];
   }
 
   /** The Referee menu of the menu bar (MainWindow::createMenuReferee). */
   menuBarItems(): MenuItem[] {
     // Without a point, Change Playmode starts from the ball (MainWindow::changePlayMode).
-    const ball = this.currentFrame()?.ball ?? { x: 0, y: 0 };
+    const ball = this.ball();
     return [
       {
         ...this.item('referee-kick-off', 'KickOff', () => this.kickOff()),
@@ -150,15 +162,33 @@ export class Referee {
     ];
   }
 
+  private ball(): Vec2 {
+    return this.currentFrame()?.ball ?? { x: 0, y: 0 };
+  }
+
   private item(id: string, label: string, action: () => void): ActionItem {
     const off = !this.connected;
     return { id, label, action, disabled: off, title: off ? NOT_CONNECTED : undefined };
   }
 
-  private cardItems(p: Vec2 | null, prefix: string): MenuItem[] {
+  /** An item that needs a point: disabled without one. */
+  private pointItem(
+    id: string,
+    label: string,
+    p: Vec2 | null,
+    action: (p: Vec2) => void,
+  ): ActionItem {
+    if (p) {
+      return this.item(id, label, () => action(p));
+    }
+    const title = this.connected ? NO_POINT : NOT_CONNECTED;
+    return { id, label, action: () => {}, disabled: true, title };
+  }
+
+  private cardItems(initial: CardTarget | null, prefix: string): MenuItem[] {
     return [
-      this.item(`${prefix}-yellow-card`, 'Yellow Card...', () => void this.card('yellow', p)),
-      this.item(`${prefix}-red-card`, 'Red Card...', () => void this.card('red', p)),
+      this.item(`${prefix}-yellow-card`, 'Yellow Card...', () => void this.card('yellow', initial)),
+      this.item(`${prefix}-red-card`, 'Red Card...', () => void this.card('red', initial)),
     ];
   }
 

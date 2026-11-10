@@ -185,8 +185,8 @@ export class App {
     };
     this.field.element.addEventListener('contextmenu', (e) => {
       e.preventDefault();
-      const point = this.field.fieldAt(e.clientX, e.clientY);
-      this.menu.show(this.referee.menuItems(point), e.clientX, e.clientY);
+      const target = this.field.targetAt(e.clientX, e.clientY);
+      this.menu.show(this.referee.menuItems(target.point, target.player), e.clientX, e.clientY);
     });
 
     window.addEventListener('keydown', (e) => this.keydown(e));
