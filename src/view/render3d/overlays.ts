@@ -1,6 +1,7 @@
 // The overlays of the players and the ball in the 3D view, on the ground,
-// as the 2D view draws them (overlay-math.ts; the Show tab's options):
-// the focus point and the kick acceleration area of the selected player,
+// as the 2D view draws them: the players' body and face directions within
+// the kickable area (always, as PlayerPainter drawDir), and those of the
+// Show tab's options (overlay-math.ts): the focus point and the kick acceleration area of the selected player,
 // the goalies' catch areas, the tackle areas, the pointto lines, the
 // offside lines and the ball's path. The stamina bars are in render3d.ts.
 //
@@ -11,7 +12,7 @@
 // writes in the player font, as the 2D view does.
 //
 // With the player camera's sight, only the players whose directions the
-// player perceives have overlays, and the ball's path only when it sees the
+// player perceives have overlays (also the direction lines), and the ball's path only when it sees the
 // ball. The offside lines are the game's, whatever the sight.
 import {
   BufferAttribute,
@@ -60,6 +61,9 @@ export interface OverlayLabel {
 
 /** What the end-to-end tests read: how many of each overlay, and the labels. */
 export interface OverlayState {
+  /** The players with their body's direction drawn, and with their face's. */
+  readonly bodyLines: number;
+  readonly neckLines: number;
   readonly focusPoints: number;
   readonly catchAreas: number;
   readonly tackleAreas: number;
@@ -213,6 +217,8 @@ export class Overlays {
   private readonly color = new Color();
   private labelList: OverlayLabel[] = [];
   private state: OverlayState = {
+    bodyLines: 0,
+    neckLines: 0,
     focusPoints: 0,
     catchAreas: 0,
     tackleAreas: 0,
@@ -255,6 +261,8 @@ export class Overlays {
     this.dotted.clear();
     this.labelList = [];
     const counts = {
+      bodyLines: 0,
+      neckLines: 0,
       focusPoints: 0,
       catchAreas: 0,
       tackleAreas: 0,
@@ -274,6 +282,17 @@ export class Overlays {
         }
         const type = playerType(p.type);
         const selected = view.isSelected(p.side, p.unum);
+        // From the center to the kickable area's edge: the body's direction,
+        // and the face's unless the view area shows it.
+        const reach = type.player_size + type.kickable_margin + sp.ball_size;
+        c.set(colors.playerPen);
+        this.solid.line(p, point(p, reach, p.body), c);
+        ++counts.bodyLines;
+        if (!o.showViewArea) {
+          c.set(colors.neck);
+          this.solid.line(p, point(p, reach, p.body + p.neck), c);
+          ++counts.neckLines;
+        }
         const fp = o.showFocusPoint && selected ? focusPointOf(p) : null;
         if (fp) {
           c.set(colors.focusPoint);

@@ -40,6 +40,8 @@ interface Renderer {
       nets: string[];
     };
     overlays: {
+      bodyLines: number;
+      neckLines: number;
       focusPoints: number;
       catchAreas: number;
       tackleAreas: number;
@@ -907,6 +909,9 @@ test('draws the overlays of the 2D view in 3D', async ({ page }) => {
   await expect
     .poll(async () => (await scene(page))?.overlays)
     .toEqual({
+      // Every player's body and face directions, as 2D.
+      bodyLines: 22,
+      neckLines: 22,
       focusPoints: 0, // it does not attentionto
       catchAreas: 2,
       tackleAreas: 1,
@@ -935,8 +940,12 @@ test('draws the overlays of the 2D view in 3D', async ({ page }) => {
   const seen = await scene(page);
   expect(seen?.overlays.pointtos).toBeLessThan(12);
   expect(seen?.overlays.offsideLines).toBe(2);
+  // The directions of those whose directions it perceives, and its own.
+  expect(seen?.overlays.bodyLines).toBeGreaterThan(0);
+  expect(seen?.overlays.bodyLines).toBeLessThan(22);
+  expect(seen?.overlays.neckLines).toBe(seen?.overlays.bodyLines);
 
-  // All off as in 2D: the numbers only.
+  // All off as in 2D: the numbers and the directions only.
   await page.locator('#camera-select').selectOption('broadcast');
   await hook(page, (h) => {
     for (const name of [
@@ -954,6 +963,8 @@ test('draws the overlays of the 2D view in 3D', async ({ page }) => {
   await expect
     .poll(async () => (await scene(page))?.overlays)
     .toEqual({
+      bodyLines: 22,
+      neckLines: 22,
       focusPoints: 0,
       catchAreas: 0,
       tackleAreas: 0,
@@ -963,6 +974,16 @@ test('draws the overlays of the 2D view in 3D', async ({ page }) => {
       ballPath: 0,
       labels: [],
     });
+  // The view areas show the faces' directions instead.
+  await hook(page, (h) => {
+    h.view.set('showViewArea', true);
+  });
+  await expect
+    .poll(async () => {
+      const o = (await scene(page))?.overlays;
+      return o && [o.bodyLines, o.neckLines];
+    })
+    .toEqual([22, 0]);
   expect((await scene(page))?.labels[6]).toBe('7');
 });
 

@@ -1,3 +1,4 @@
+import type { LineSegments } from 'three';
 import { describe, expect, it } from 'vitest';
 import { PlayerStateBit, Side } from '../../src/core/constants';
 import { disabledPlayer, type Frame, type PlayerState } from '../../src/core/frame';
@@ -155,6 +156,8 @@ describe('the 3D overlays', () => {
       true,
     );
     expect(o.inspect()).toEqual({
+      bodyLines: 2,
+      neckLines: 2,
       focusPoints: 1,
       catchAreas: 1,
       tackleAreas: 2,
@@ -179,6 +182,8 @@ describe('the 3D overlays', () => {
       false,
     );
     expect(o.inspect()).toMatchObject({
+      bodyLines: 1,
+      neckLines: 1,
       tackleAreas: 1,
       pointtos: 1,
       offsideLines: 2,
@@ -203,6 +208,8 @@ describe('the 3D overlays', () => {
       true,
     );
     expect(o.inspect()).toEqual({
+      bodyLines: 2,
+      neckLines: 2,
       focusPoints: 0,
       catchAreas: 0,
       tackleAreas: 0,
@@ -212,6 +219,46 @@ describe('the 3D overlays', () => {
       ballPath: 0,
       labels: [],
     });
+    o.dispose();
+  });
+
+  it("draw the body's and the face's directions within the kickable area, as 2D", () => {
+    // Facing +x, the face 90 degrees to the right (+y, down on the 2D screen).
+    const p = alive(0, { x: 10, y: -5, body: 0, neck: 90 });
+    const o = new Overlays();
+    const v = new ViewState();
+    o.update(
+      frame([p]),
+      v,
+      sp,
+      () => type,
+      () => true,
+      true,
+    );
+    expect(o.inspect()).toMatchObject({ bodyLines: 1, neckLines: 1 });
+    const lines = o.group.children[0] as LineSegments;
+    const at = lines.geometry.getAttribute('position');
+    const color = lines.geometry.getAttribute('color');
+    const reach = type.player_size + type.kickable_margin + sp.ball_size;
+    const vertex = (i: number) => [at.getX(i), at.getY(i), at.getZ(i)];
+    const rgb = (i: number) => [color.getX(i), color.getY(i), color.getZ(i)];
+    // World: X = field x, Z = field y, a little above the ground.
+    expect(vertex(0)).toEqual([10, expect.closeTo(0.045), -5]);
+    expect(vertex(1).map((q) => Math.round(q * 1e6) / 1e6)).toEqual([10 + reach, 0.045, -5]);
+    expect(rgb(0)).toEqual([0, 0, 0]); // the player pen
+    expect(vertex(3).map((q) => Math.round(q * 1e6) / 1e6)).toEqual([10, 0.045, -5 + reach]);
+    expect(rgb(3)).toEqual([1, 0, 0]); // the neck color
+    // The view area shows the face's direction instead.
+    v.options.showViewArea = true;
+    o.update(
+      frame([p]),
+      v,
+      sp,
+      () => type,
+      () => true,
+      true,
+    );
+    expect(o.inspect()).toMatchObject({ bodyLines: 1, neckLines: 0 });
     o.dispose();
   });
 });
