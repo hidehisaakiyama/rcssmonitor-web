@@ -260,6 +260,7 @@ export class App {
     r.setGuides({ compass: s.compass3d, minimap: s.minimap3d });
     r.setStadium({ boards: s.boards3d, banners: s.banners3d });
     r.setPlayerModel(s.playerModel3d);
+    r.setShadows(s.shadows3d);
   }
 
   // ---- 2D / 3D

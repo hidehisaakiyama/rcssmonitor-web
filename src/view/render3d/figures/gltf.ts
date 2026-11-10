@@ -299,6 +299,7 @@ export class GltfFigures implements Figures {
           return;
         }
         mesh.frustumCulled = false; // the animated bounds are not the bind pose's
+        mesh.castShadow = true;
         const swap = (m: Material) => {
           if (this.rig.jersey.includes(m.name) && m instanceof MeshStandardMaterial) {
             const own = m.clone();

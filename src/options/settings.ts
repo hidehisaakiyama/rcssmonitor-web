@@ -76,6 +76,8 @@ export interface AppSettings {
   banners3d: boolean;
   /** The players as cylinders or as human figures (the prototype: render3d/figures/). */
   playerModel3d: PlayerModel;
+  /** The sun's shadows of the players and the goals in the 3D view. */
+  shadows3d: boolean;
 }
 
 export const DEFAULT_APP_SETTINGS: Readonly<AppSettings> = Object.freeze({
@@ -103,6 +105,7 @@ export const DEFAULT_APP_SETTINGS: Readonly<AppSettings> = Object.freeze({
   boards3d: true,
   banners3d: true,
   playerModel3d: 'simple',
+  shadows3d: true,
 });
 
 /** The close-up cameras' settings, for the 3D renderer. */
@@ -145,6 +148,7 @@ const VIEW_3D_KEYS = [
   'boards3d',
   'banners3d',
   'playerModel3d',
+  'shadows3d',
 ] as const satisfies readonly (keyof AppSettings)[];
 
 function reset(app: AppSettings, keys: readonly (keyof AppSettings)[]): void {
@@ -279,6 +283,7 @@ export const SETTINGS: readonly Entry[] = [
   appBool('boards_3d', 'boards3d'),
   appBool('banners_3d', 'banners3d'),
   appChoice('player_model_3d', 'playerModel3d', PLAYER_MODELS),
+  appBool('shadows_3d', 'shadows3d'),
 
   viewBool('show_score_board', 'showScoreBoard'),
   viewBool('show_team_graphic', 'showTeamGraphic'),

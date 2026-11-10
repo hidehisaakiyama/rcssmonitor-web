@@ -55,6 +55,7 @@ interface Renderer {
     numberPositions: ({ x: number; y: number; z: number } | null)[];
     numberHeight: number;
     largestNumber: number;
+    shadows: { cast: boolean; mapSize: number };
     cylinders: number;
     figures: {
       model: string;
@@ -1435,4 +1436,33 @@ test('plays the figures from the log: fouls, and the same pose however a frame i
   await expect.poll(async () => (await scene(page))?.figures?.knees).toEqual(knees);
   expect((await figures(130))?.knees).not.toEqual(knees);
   expect((await figures(100))?.knees).toEqual(knees);
+});
+
+test('casts the shadows of the players from the sun, but not from the top camera', async ({
+  page,
+}) => {
+  await openApp(page, '?view_3d=on&camera_3d=broadcast');
+  await wait3d(page);
+  await loadLog(page, 'json-sample.rcg.gz');
+  const shadows = async () => (await scene(page))?.shadows;
+  // On by default, in one map of 4096 (or 2048) pixels square.
+  await expect.poll(async () => (await shadows())?.cast).toBe(true);
+  expect([2048, 4096]).toContain((await shadows())?.mapSize);
+  // From above, they would crowd the view.
+  await page.locator('#camera-select').selectOption('top');
+  await expect.poll(async () => (await shadows())?.cast).toBe(false);
+  await page.locator('#camera-select').selectOption('closeup-ball');
+  await expect.poll(async () => (await shadows())?.cast).toBe(true);
+
+  // The 3D tab turns them off; its Default on again.
+  await page.keyboard.press('Control+v');
+  await page.locator('#config-tab-3d').click();
+  const box = page.locator('#config-shadows-3d');
+  await expect(box).toBeChecked();
+  await expect(page.locator('label:has(#config-shadows-3d)')).toHaveAttribute('title', /sun/);
+  await box.uncheck();
+  await expect.poll(async () => (await shadows())?.cast).toBe(false);
+  await page.locator('#config-3d-default').click();
+  await expect(box).toBeChecked();
+  await expect.poll(async () => (await shadows())?.cast).toBe(true);
 });

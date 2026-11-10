@@ -55,12 +55,14 @@ import {
   MOUSE,
   Object3D,
   OrthographicCamera,
+  PCFShadowMap,
   PerspectiveCamera,
   Plane,
   PlaneGeometry,
   Raycaster,
   RingGeometry,
   Scene,
+  ShadowMaterial,
   SphereGeometry,
   SRGBColorSpace,
   Sprite,
@@ -164,6 +166,17 @@ const BAR_LIFT = 0.45;
 const CAPACITY_COLOR = '#4aa3ff';
 /** The smoothing cameras count as still within this distance of where they go. */
 const SETTLED = 0.02;
+/** The sun's shadows: how far beyond the drawn ground they reach (m), and how dark they are. */
+const SHADOW_MARGIN = 4;
+const SHADOW_OPACITY = 0.4;
+/**
+ * Where the sun is: beyond the far touch line on the left, 44 degrees up, so
+ * that from the near side (the broadcast and close-up cameras) the shadows
+ * fall to the right and toward the camera, about as long as a player is high.
+ */
+const SUN = Object.freeze({ x: -60, y: 65, z: -30 });
+/** The highest that casts a shadow: the figures (2.2 m) and the crossbar. */
+const SHADOW_HEIGHT = 3;
 
 /** The number labels: canvas pixels, and meters per 64 pixels. */
 const LABEL_WIDTH = 192;
@@ -228,6 +241,8 @@ export interface Render3DState {
   readonly numberHeight: number;
   /** The highest number's text on the screen, in CSS pixels (0: none shown). */
   readonly largestNumber: number;
+  /** Whether the sun casts the shadows (on, and not from the top camera), and their map's size. */
+  readonly shadows: { readonly cast: boolean; readonly mapSize: number };
   /** The ends in the team colors: the nets (left, right), the boards and the banners. */
   readonly stadium: StadiumState & { readonly nets: readonly string[] };
   /** The frame drawn last (before interpolation), or -1. */
@@ -348,6 +363,10 @@ export class Render3D implements FieldRenderer {
   private readonly ballMaterial: MeshLambertMaterial;
   private readonly shadow: Mesh;
   private readonly shadowMaterial: MeshBasicMaterial;
+  /** The sun, which casts the players' and the goals' shadows on shadowGround. */
+  private readonly sun: DirectionalLight;
+  private readonly shadowGround: Mesh;
+  private shadowsOn = false;
   /** The players drawn, by instance of the bodies and heads, for playerAt(). */
   private drawnPlayers: PlayerState[] = [];
   private counts = {
@@ -383,9 +402,12 @@ export class Render3D implements FieldRenderer {
 
     this.scene.add(new HemisphereLight(0xffffff, 0x3a5f3a, 1.6));
     this.scene.add(new AmbientLight(0xffffff, 0.4));
-    const sun = new DirectionalLight(0xffffff, 1.6);
-    sun.position.set(-30, 80, 40);
-    this.scene.add(sun);
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = PCFShadowMap;
+    this.sun = new DirectionalLight(0xffffff, 1.6);
+    this.sun.position.set(SUN.x, SUN.y, SUN.z);
+    this.fitSunShadow();
+    this.scene.add(this.sun, this.sun.target);
 
     // The ground: the field texture over the margin, plain green beyond.
     this.fieldTexture = this.track(new CanvasTexture(this.fieldCanvas));
@@ -404,6 +426,21 @@ export class Render3D implements FieldRenderer {
     outside.rotation.x = -Math.PI / 2;
     outside.position.y = -0.02;
     this.scene.add(outside);
+    // The shadows only, over the ground and under the circles of the players.
+    this.shadowGround = new Mesh(
+      this.track(
+        new PlaneGeometry(
+          TEXTURE_AREA.length + 2 * SHADOW_MARGIN,
+          TEXTURE_AREA.width + 2 * SHADOW_MARGIN,
+        ),
+      ),
+      this.track(new ShadowMaterial({ opacity: SHADOW_OPACITY, depthWrite: false })),
+    );
+    this.shadowGround.rotation.x = -Math.PI / 2;
+    this.shadowGround.position.y = 0.01;
+    this.shadowGround.receiveShadow = true;
+    this.shadowGround.visible = false;
+    this.scene.add(this.shadowGround);
 
     this.scene.add(this.goal(-1), this.goal(1), this.overlays.group);
     this.stadium = new Stadium(this.fieldTexture.anisotropy);
@@ -417,6 +454,8 @@ export class Render3D implements FieldRenderer {
       );
     this.bodies = this.instanced(new CylinderGeometry(1, 1, 1, 20), lambert());
     this.heads = this.instanced(new SphereGeometry(HEAD_RADIUS, 16, 12), lambert());
+    this.bodies.castShadow = true;
+    this.heads.castShadow = true;
     const unseen = () => this.track(new MeshBasicMaterial({ visible: false }));
     this.pickBodies = this.instanced(new CylinderGeometry(1, 1, 1, 8), unseen());
     this.pickHeads = this.instanced(new SphereGeometry(HEAD_RADIUS, 8, 6), unseen());
@@ -669,6 +708,7 @@ export class Render3D implements FieldRenderer {
       this.cameraTarget = fit.target;
     }
     this.mode = mode;
+    this.applyShadows();
     this.snap = true;
     this.settled = mode === 'free' || mode === 'top';
     if (mode === 'free') {
@@ -696,6 +736,66 @@ export class Render3D implements FieldRenderer {
     this.updateControls();
     this.settled = true;
     this.onInvalidate?.();
+  }
+
+  /** The sun's shadows of the players and the goals (not from the top camera: they would crowd it). */
+  setShadows(on: boolean): void {
+    if (on === this.shadowsOn) {
+      return;
+    }
+    this.shadowsOn = on;
+    this.applyShadows();
+    this.onInvalidate?.();
+  }
+
+  private applyShadows(): void {
+    const cast = this.shadowsOn && this.mode !== 'top';
+    this.sun.castShadow = cast;
+    this.shadowGround.visible = cast;
+  }
+
+  /**
+   * One shadow map for the drawn ground and a little beyond: the sun's
+   * shadow camera fits that box (up to the highest caster) as the sun sees
+   * it. 4096 pixels square where the GPU allows (about 3 cm a pixel).
+   */
+  private fitSunShadow(): void {
+    const sun = this.sun;
+    sun.position.normalize().multiplyScalar(200);
+    sun.target.position.set(0, 0, 0);
+    const view = new OrthographicCamera();
+    view.position.copy(sun.position);
+    view.lookAt(sun.target.position);
+    view.updateMatrixWorld();
+    const hx = TEXTURE_AREA.length / 2 + SHADOW_MARGIN;
+    const hz = TEXTURE_AREA.width / 2 + SHADOW_MARGIN;
+    const min = new Vector3(Infinity, Infinity, Infinity);
+    const max = new Vector3(-Infinity, -Infinity, -Infinity);
+    const v = new Vector3();
+    for (const x of [-hx, hx]) {
+      for (const y of [0, SHADOW_HEIGHT]) {
+        for (const z of [-hz, hz]) {
+          v.set(x, y, z).applyMatrix4(view.matrixWorldInverse);
+          min.min(v);
+          max.max(v);
+        }
+      }
+    }
+    const c = sun.shadow.camera;
+    Object.assign(c, {
+      left: min.x,
+      right: max.x,
+      bottom: min.y,
+      top: max.y,
+      near: Math.max(0.1, -max.z - 1),
+      far: -min.z + 1,
+    });
+    c.updateProjectionMatrix();
+    const size = this.renderer.capabilities.maxTextureSize >= 8192 ? 4096 : 2048;
+    sun.shadow.mapSize.set(size, size);
+    sun.shadow.bias = -0.0005;
+    sun.shadow.normalBias = 0.02;
+    sun.shadow.radius = 2;
   }
 
   /** How far from what they follow and how high the close-up cameras are; they glide there. */
@@ -826,6 +926,7 @@ export class Render3D implements FieldRenderer {
       numberPositions: this.numbers.map((s) => (s.visible ? world(s.position) : null)),
       numberHeight: LABEL_SCALE * this.labelK,
       largestNumber: this.largestNumber,
+      shadows: { cast: this.sun.castShadow, mapSize: this.sun.shadow.mapSize.x },
       stadium: {
         ...this.stadium.inspect(),
         nets: this.nets.map((m) => `#${m.color.getHexString()}`),
@@ -996,9 +1097,11 @@ export class Render3D implements FieldRenderer {
     for (const z of [-halfWidth, halfWidth]) {
       const m = new Mesh(upright, post);
       m.position.set(lineX, GOAL_HEIGHT / 2, z);
+      m.castShadow = true;
       g.add(m);
     }
     const bar = new Mesh(this.track(new CylinderGeometry(r, r, PITCH.goalWidth, 12)), post);
+    bar.castShadow = true;
     bar.rotation.x = Math.PI / 2;
     bar.position.set(lineX, GOAL_HEIGHT, 0);
     g.add(bar);

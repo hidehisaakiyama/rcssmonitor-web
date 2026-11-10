@@ -838,6 +838,17 @@ export class ConfigDialog {
             app.playerModel3d = v;
           },
         ),
+        this.row(
+          this.check3d(
+            'config-shadows-3d',
+            'Shadows',
+            SHADOWS_TOOLTIP,
+            () => app.shadows3d,
+            (on) => {
+              app.shadows3d = on;
+            },
+          ),
+        ),
       ),
       this.group(
         'Stadium',
@@ -1202,6 +1213,9 @@ const PLAYER_MODELS_3D: Choice<AppSettings['playerModel3d']>[] = [
       'camera, and for players whose directions the player camera does not see.',
   ],
 ];
+const SHADOWS_TOOLTIP =
+  'The players and the goals cast shadows from the sun on the ground, except from the top ' +
+  'camera. The ball keeps its shadow right below it, which tells its height.';
 const BOARDS_TOOLTIP =
   'Boards around the pitch, 5.5 m out and 1 m high: a dark shade of the team color with the ' +
   'team name and edges in the team color, changing at the halfway line.';
@@ -1239,6 +1253,7 @@ function defaultView3d(): string {
     `Boards ${d.boards3d ? 'On' : 'Off'}`,
     `Banners ${d.banners3d ? 'On' : 'Off'}`,
     `Model ${choiceLabel(PLAYER_MODELS_3D, d.playerModel3d)}`,
+    `Shadows ${d.shadows3d ? 'On' : 'Off'}`,
   ].join(', ');
 }
 

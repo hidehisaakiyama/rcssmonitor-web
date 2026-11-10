@@ -189,6 +189,18 @@ describe('the close-up cameras', () => {
   });
 });
 
+describe('the shadows', () => {
+  it('are on by default, a setting of the 3D tab', () => {
+    const t = defaultTargets();
+    expect(t.app.shadows3d).toBe(true);
+    expect(settingsFromUrl(new URLSearchParams('shadows_3d=off'))).toEqual({ shadows_3d: false });
+    expect(applySettings(t, { shadows_3d: false })).toEqual(['shadows_3d']);
+    expect(t.app.shadows3d).toBe(false);
+    resetView3d(t.app);
+    expect(t.app.shadows3d).toBe(true);
+  });
+});
+
 describe('player style', () => {
   const style = (p: PlayerState, selected = false) =>
     playerStyle(
