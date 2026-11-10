@@ -24,6 +24,8 @@ export interface ToolbarActions {
   toggleLoop(): void;
   toggle3d(): void;
   setCamera(mode: CameraMode): void;
+  /** Opens the list of the 3D viewpoints below `anchor`. */
+  showViewpoints(anchor: HTMLElement): void;
   seek(index: number): void;
   /** Returns false if the log has no such cycle. */
   goToCycle(cycle: number): boolean;
@@ -117,7 +119,14 @@ export class Toolbar {
       actions.setCamera(this.cameraSelect.value as CameraMode);
       this.cameraSelect.blur(); // the keys go back to the player
     });
-    g.append(this.cameraSelect);
+    const viewpoints = this.button(
+      'viewpoints',
+      'viewpoints',
+      `Viewpoints of the whole pitch (I: from the side, ${CTRL_LABEL}I: the next)`,
+      () => actions.showViewpoints(viewpoints),
+    );
+    viewpoints.setAttribute('aria-haspopup', 'menu');
+    g.append(this.cameraSelect, viewpoints);
 
     this.slider = document.createElement('input');
     Object.assign(this.slider, {
@@ -194,6 +203,10 @@ export class Toolbar {
     this.buttons.get('live')?.setAttribute('aria-pressed', String(s.live));
     this.buttons.get('view-3d')?.setAttribute('aria-pressed', String(s.view3d));
     this.cameraSelect.hidden = !s.view3d;
+    const viewpoints = this.buttons.get('viewpoints');
+    if (viewpoints) {
+      viewpoints.hidden = !s.view3d;
+    }
     this.cameraSelect.value = s.camera;
 
     this.frameLabel.textContent =

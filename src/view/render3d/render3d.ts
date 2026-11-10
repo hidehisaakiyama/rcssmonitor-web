@@ -97,8 +97,10 @@ import {
   goalPose,
   smoothToward,
   topHalfSize,
+  viewpointPose,
   type CameraMode,
   type CameraPose,
+  type Viewpoint,
 } from './cameras';
 import { fieldTextureKey, paintFieldTexture } from './field-texture';
 import {
@@ -647,6 +649,23 @@ export class Render3D implements FieldRenderer {
       this.applyPerspective();
     }
     this.updateControls();
+    this.onInvalidate?.();
+  }
+
+  /**
+   * Puts the free camera at a viewpoint of the whole pitch (cameras.ts
+   * VIEWPOINTS), from where the mouse moves it on; the mode becomes free.
+   */
+  viewFrom(viewpoint: Viewpoint): void {
+    this.setCameraMode('free');
+    const pose = viewpointPose(viewpoint, this.width / this.height);
+    this.cameraPosition = pose.position;
+    this.cameraTarget = pose.target;
+    this.perspective.fov = CAMERA_FOV;
+    this.perspective.updateProjectionMatrix();
+    this.applyPerspective();
+    this.updateControls();
+    this.settled = true;
     this.onInvalidate?.();
   }
 

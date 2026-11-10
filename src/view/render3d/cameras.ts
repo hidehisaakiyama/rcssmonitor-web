@@ -3,10 +3,18 @@
 //
 // Cameras that follow the ball follow where it is on the ground, so that a
 // ball in the air (the planned 2.5D simulator) does not shake the picture.
+// The viewpoints are fixed places of the free camera, each with the whole
+// pitch in view.
 // The selected player's camera is in player-camera.ts.
 import { PITCH } from '../../core/constants';
 import { DEG2RAD } from '../../core/geometry';
-import { CAMERA_ELEVATION, fitCameraPosition, TEXTURE_AREA, type World } from './scene-math';
+import {
+  CAMERA_ELEVATION,
+  fitCameraPosition,
+  fitView,
+  TEXTURE_AREA,
+  type World,
+} from './scene-math';
 
 export const CAMERA_MODES = [
   'free',
@@ -26,6 +34,67 @@ export const CAMERA_LABELS: Readonly<Record<CameraMode, string>> = {
   'goal-right': 'Behind the Right Goal',
   player: 'Selected Player',
 };
+
+/**
+ * Viewpoints of the whole pitch, fixed (not after the ball): choosing one
+ * puts the free camera there (View > 3D Camera, the tool bar, I for the
+ * first, Ctrl+I for the next). The first is where the free camera starts.
+ */
+export const VIEWPOINTS = [
+  'side',
+  'far-side',
+  'left-end',
+  'right-end',
+  'high',
+  'near-left',
+  'near-right',
+  'far-left',
+  'far-right',
+] as const;
+export type Viewpoint = (typeof VIEWPOINTS)[number];
+
+export const VIEWPOINT_LABELS: Readonly<Record<Viewpoint, string>> = {
+  side: 'Whole Pitch',
+  'far-side': 'Whole Pitch, Far Side',
+  'left-end': 'Whole Pitch, Behind the Left Goal',
+  'right-end': 'Whole Pitch, Behind the Right Goal',
+  high: 'Whole Pitch, High Above',
+  'near-left': 'Whole Pitch, Near Left Corner',
+  'near-right': 'Whole Pitch, Near Right Corner',
+  'far-left': 'Whole Pitch, Far Left Corner',
+  'far-right': 'Whole Pitch, Far Right Corner',
+};
+
+/**
+ * Where each viewpoint looks from: the field direction from the pitch's
+ * center (90: the near touch line, +y, below on the 2D screen; 0: behind
+ * the right goal) and the elevation, in degrees.
+ */
+export const VIEWPOINT_ANGLES: Readonly<
+  Record<Viewpoint, { readonly azimuth: number; readonly elevation: number }>
+> = {
+  side: { azimuth: 90, elevation: CAMERA_ELEVATION },
+  'far-side': { azimuth: -90, elevation: CAMERA_ELEVATION },
+  'left-end': { azimuth: 180, elevation: 35 },
+  'right-end': { azimuth: 0, elevation: 35 },
+  high: { azimuth: 90, elevation: 62 },
+  'near-left': { azimuth: 135, elevation: 35 },
+  'near-right': { azimuth: 45, elevation: 35 },
+  'far-left': { azimuth: -135, elevation: 35 },
+  'far-right': { azimuth: -45, elevation: 35 },
+};
+
+/** The free camera's pose for a viewpoint, the whole pitch in a canvas of `aspect`. */
+export function viewpointPose(viewpoint: Viewpoint, aspect: number): CameraPose {
+  const { azimuth, elevation } = VIEWPOINT_ANGLES[viewpoint];
+  return { ...fitView(azimuth, elevation, CAMERA_FOV, aspect), fov: CAMERA_FOV };
+}
+
+/** The viewpoint after `viewpoint` (Ctrl+I), or the first after none. */
+export function nextViewpoint(viewpoint: Viewpoint | null): Viewpoint {
+  const i = viewpoint === null ? -1 : VIEWPOINTS.indexOf(viewpoint);
+  return VIEWPOINTS[(i + 1) % VIEWPOINTS.length] ?? 'side';
+}
 
 export interface CameraPose {
   readonly position: World;

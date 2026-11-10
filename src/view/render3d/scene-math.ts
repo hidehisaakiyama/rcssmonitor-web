@@ -115,6 +115,60 @@ export function fitCameraPosition(
   };
 }
 
+/**
+ * A camera looking at the pitch's center from `azimuth` degrees (the field
+ * direction from the center to the camera; 90 is the near touch line, +y)
+ * and `elevation` degrees above the ground, as close as it can be with the
+ * pitch and 2 m around it inside the canvas of `aspect`, keeping 15% of the
+ * height free as fitCameraPosition does (which is this one from 90 and
+ * CAMERA_ELEVATION degrees).
+ *
+ * With f the camera's forward, r its right and u its up, a ground corner c
+ * is at depth c·f + D from a camera at distance D, and at c·r across and
+ * c·u up, which do not change with D: D is the largest of
+ * |c·r| / (0.97 tan h) - c·f and |c·u| / (0.85 tan v) over the corners.
+ */
+export function fitView(
+  azimuth: number,
+  elevation: number,
+  verticalFovDeg: number,
+  aspect: number,
+): { position: World; target: World } {
+  const tanV = Math.tan((verticalFovDeg * DEG2RAD) / 2);
+  const tanH = tanV * aspect;
+  const a = azimuth * DEG2RAD;
+  const e = elevation * DEG2RAD;
+  // From the center toward the camera; the camera looks the other way.
+  const back = { x: Math.cos(e) * Math.cos(a), y: Math.sin(e), z: Math.cos(e) * Math.sin(a) };
+  const f = { x: -back.x, y: -back.y, z: -back.z };
+  // Right: forward × up, level; up: right × forward.
+  const r = { x: -f.z / Math.cos(e), y: 0, z: f.x / Math.cos(e) };
+  const u = {
+    x: r.y * f.z - r.z * f.y,
+    y: r.z * f.x - r.x * f.z,
+    z: r.x * f.y - r.y * f.x,
+  };
+  const hx = PITCH.length / 2 + 2;
+  const hz = PITCH.width / 2 + 2;
+  let distance = 0;
+  for (const x of [-hx, hx]) {
+    for (const z of [-hz, hz]) {
+      const across = x * r.x + z * r.z;
+      const up = x * u.x + z * u.z;
+      const depth = x * f.x + z * f.z;
+      distance = Math.max(
+        distance,
+        Math.abs(across) / (0.97 * tanH) - depth,
+        Math.abs(up) / (0.85 * tanV) - depth,
+      );
+    }
+  }
+  return {
+    position: { x: back.x * distance, y: back.y * distance, z: back.z * distance },
+    target: { x: 0, y: 0, z: 0 },
+  };
+}
+
 /** The area the field texture covers: the pitch and its margin, centered on the origin. */
 export const TEXTURE_AREA = {
   length: PITCH.length + 2 * PITCH.margin,

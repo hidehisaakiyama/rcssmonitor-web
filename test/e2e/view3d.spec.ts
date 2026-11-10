@@ -2,6 +2,8 @@ import { expect, test, type Page } from '@playwright/test';
 import { Side } from '../../src/core/constants';
 import type { Vec2 } from '../../src/core/geometry';
 import { dispFoul } from '../../src/io/live/commands';
+import { CAMERA_FOV } from '../../src/view/render3d/cameras';
+import { fitCameraPosition } from '../../src/view/render3d/scene-math';
 import type { FieldTarget } from '../../src/ui/field-view';
 import type { ViewState } from '../../src/view/view-state';
 import { ReplayServer } from '../../tools/replay-server/replay-server';
@@ -1196,4 +1198,53 @@ test('draws the players as human figures, but cylinders from above and when unse
   await page.locator('#config-player-model-3d-figure').check();
   await page.locator('#config-3d-default').click();
   await expect(page.locator('#config-player-model-3d-simple')).toBeChecked();
+});
+
+test('jumps to the viewpoints of the whole pitch with I, Ctrl+I and the tool bar', async ({
+  page,
+}) => {
+  await openApp(page, '?view_3d=on&camera_3d=broadcast');
+  await wait3d(page);
+  await loadLog(page, 'json-sample.rcg.gz');
+  const camera = async () => (await scene(page))?.camera;
+  // I: the whole pitch from the side, where the free camera starts; free from now on.
+  await page.keyboard.press('i');
+  await expect(page.locator('#camera-select')).toHaveValue('free');
+  await expect(page.locator('#status-message')).toContainText('Viewpoint: Whole Pitch');
+  const aspect = await hook(page, (h) => {
+    const c = h.field.renderer.canvas;
+    return c.clientWidth / c.clientHeight;
+  });
+  const fit = fitCameraPosition(CAMERA_FOV, aspect).position;
+  await expect.poll(async () => (await camera())?.mode).toBe('free');
+  const side = (await camera())?.position;
+  expect(side?.x).toBeCloseTo(fit.x, 3);
+  expect(side?.y).toBeCloseTo(fit.y, 3);
+  expect(side?.z).toBeCloseTo(fit.z, 3);
+  // It stays: the free camera does not follow the ball.
+  await hook(page, (h) => {
+    h.showFrame(120);
+  });
+  await page.waitForTimeout(300);
+  expect((await camera())?.position.z).toBeCloseTo(fit.z, 3);
+
+  // Ctrl+I: the next one, from the far side.
+  await page.keyboard.press('Control+I');
+  await expect(page.locator('#status-message')).toContainText('Far Side');
+  await expect.poll(async () => (await camera())?.position.z ?? 0).toBeLessThan(0);
+
+  // The tool bar's list: behind the left goal.
+  await page.locator('#camera-select').selectOption('broadcast');
+  await page.locator('#viewpoints-button').click();
+  await page.locator('#toolbar-viewpoint-left-end').click();
+  await expect(page.locator('#camera-select')).toHaveValue('free');
+  await expect.poll(async () => (await camera())?.position.x ?? 0).toBeLessThan(-50);
+
+  // Not in 2D: I fits the field there, Ctrl+I only says it is for 3D, and the button is gone.
+  await page.locator('#view-3d-button').click();
+  await expect.poll(() => kind(page)).toBe('2d');
+  await expect(page.locator('#viewpoints-button')).toBeHidden();
+  await page.keyboard.press('Control+I');
+  await expect(page.locator('#status-message')).toContainText('for the 3D view');
+  expect(await kind(page)).toBe('2d');
 });

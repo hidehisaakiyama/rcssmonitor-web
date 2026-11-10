@@ -162,6 +162,11 @@ export interface WindowKeyActions {
   open(): void;
   toggle3d(): void;
   nextCamera(): void;
+  /**
+   * I (the whole pitch) or Ctrl+I (the next viewpoint) of the 3D view;
+   * false for I in 2D, where it fits the field instead (handleViewKey).
+   */
+  viewpoint(next: boolean): boolean;
   toggleMenuBar(): void;
   playerTypes(): void;
   preference(): void;
@@ -175,6 +180,10 @@ export interface WindowKeyActions {
  */
 export function handleWindowKey(actions: WindowKeyActions, e: KeyboardEvent): boolean {
   const ctrl = e.ctrlKey || e.metaKey;
+  // I, Ctrl+I: not in rcssmonitor (3D). Ctrl+Shift+I stays the browser's (the developer tools).
+  if (e.key.toLowerCase() === 'i' && !e.altKey && !e.shiftKey) {
+    return actions.viewpoint(ctrl);
+  }
   if (e.shiftKey) {
     return false;
   }
@@ -289,7 +298,16 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { group: 'Window', keys: [key('e')], action: 'The next camera of the 3D view' },
   { group: 'View', keys: [key('z')], action: 'Zoom in' },
   { group: 'View', keys: [key('x'), ctrl('z')], action: 'Zoom out' },
-  { group: 'View', keys: [key('i')], action: 'Fit the field to the window' },
+  {
+    group: 'View',
+    keys: [key('i')],
+    action: 'Fit the field to the window; in 3D, the whole pitch from the side (free camera)',
+  },
+  {
+    group: 'View',
+    keys: [ctrl('i')],
+    action: 'In 3D, the next viewpoint of the whole pitch (free camera)',
+  },
   { group: 'View', keys: [key('b')], action: 'Follow the ball' },
   { group: 'View', keys: [key('p')], action: 'Follow the selected player' },
   { group: 'View', keys: [ctrl('s')], action: 'Show / hide the score board' },

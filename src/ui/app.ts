@@ -22,7 +22,11 @@ import {
   CAMERA_LABELS,
   CAMERA_MODES,
   nextCameraMode,
+  nextViewpoint,
+  VIEWPOINT_LABELS,
+  VIEWPOINTS,
   type CameraMode,
+  type Viewpoint,
 } from '../view/render3d/cameras';
 import type { Render3D } from '../view/render3d/render3d';
 import { ViewState } from '../view/view-state';
@@ -112,6 +116,10 @@ export class App {
       },
       toggle3d: () => void this.toggle3d(),
       setCamera: (mode) => this.setCamera(mode),
+      showViewpoints: (anchor) => {
+        const r = anchor.getBoundingClientRect();
+        this.menu.show(this.viewpointItems('toolbar'), r.left, r.bottom);
+      },
       seek: (i) => p.goToIndex(i),
       goToCycle: (c) => p.goToCycle(c),
     });
@@ -357,6 +365,47 @@ export class App {
     this.updateToolbar();
   }
 
+  /** The last viewpoint chosen, for Ctrl+I. */
+  private viewpointShown: Viewpoint | null = null;
+
+  /**
+   * Puts the free camera at a viewpoint of the whole pitch (View > 3D
+   * Camera, the tool bar, I, Ctrl+I): the camera mode becomes free.
+   */
+  viewFrom(viewpoint: Viewpoint): void {
+    if (!this.is3d) {
+      this.status.showMessage('The viewpoints are for the 3D view (D).', 3000);
+      return;
+    }
+    this.viewpointShown = viewpoint;
+    this.settings.camera3d = 'free';
+    this.settingsChanged();
+    void this.render3d?.then((r) => r.viewFrom(viewpoint));
+    this.status.showMessage(`Viewpoint: ${VIEWPOINT_LABELS[viewpoint]}`, 2000);
+    this.updateToolbar();
+  }
+
+  /** I (the whole pitch from the side) and Ctrl+I (the next viewpoint) in 3D; 2D fits with I. */
+  private keyViewpoint(next: boolean): boolean {
+    if (!this.is3d && !next) {
+      return false; // I fits the field (handleViewKey)
+    }
+    // Ctrl+I in 2D only says it is for 3D, rather than leave it to the browser (Firefox's page info).
+    this.viewFrom(next ? nextViewpoint(this.viewpointShown) : 'side');
+    return true;
+  }
+
+  /** The viewpoints as menu items. */
+  private viewpointItems(prefix: string): MenuItem[] {
+    return VIEWPOINTS.map((vp) => ({
+      id: `${prefix}-viewpoint-${vp}`,
+      label: VIEWPOINT_LABELS[vp],
+      ...(vp === 'side' ? { shortcut: 'I' } : {}),
+      disabled: !this.is3d,
+      action: () => this.viewFrom(vp),
+    }));
+  }
+
   private nextCamera(): void {
     if (this.is3d) {
       this.setCamera(nextCameraMode(this.settings.camera3d));
@@ -474,13 +523,19 @@ export class App {
         id: 'view-camera',
         label: '3D Camera',
         disabled: !this.is3d,
-        title: this.is3d ? 'E: the next camera' : 'For the 3D view (D)',
-        items: CAMERA_MODES.map((mode) => ({
-          id: `view-camera-${mode}`,
-          label: CAMERA_LABELS[mode],
-          checked: this.settings.camera3d === mode,
-          action: () => this.setCamera(mode),
-        })),
+        title: this.is3d
+          ? `E: the next camera; I: the whole pitch; ${CTRL_LABEL}I: the next viewpoint`
+          : 'For the 3D view (D)',
+        items: [
+          ...CAMERA_MODES.map((mode) => ({
+            id: `view-camera-${mode}`,
+            label: CAMERA_LABELS[mode],
+            checked: this.settings.camera3d === mode,
+            action: () => this.setCamera(mode),
+          })),
+          { kind: 'separator' as const },
+          ...this.viewpointItems('view'),
+        ],
       },
       { kind: 'separator' },
       {
@@ -674,6 +729,7 @@ export class App {
       open: () => this.fileInput.click(),
       toggle3d: () => void this.toggle3d(),
       nextCamera: () => this.nextCamera(),
+      viewpoint: (next: boolean) => this.keyViewpoint(next),
       toggleMenuBar: () => this.toggleBar('showMenuBar'),
       playerTypes: () => this.playerTypes.panel.toggle(),
       preference: () => this.config.panel.toggle(),
