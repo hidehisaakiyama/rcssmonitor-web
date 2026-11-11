@@ -84,7 +84,7 @@ rcssmonitor (Qt 版) の機能と、rcssmonitor-web での扱いをまとめた�
 | 機能 | rcssmonitor | Phase | 状態 | 備考 |
 |---|---|---|---|---|
 | ログを開く (Ctrl+O) | main_window.cpp:1743-1785 | 3 | 済 | ボタンと Ctrl+O のほか、ドラッグ＆ドロップでも開ける。開くと全体表示に戻り、先頭で止まる |
-| URL を指定してログを開く | (rcssmonitor にない) | 20.0.0 | 済 | File > Open Game Log from URL、または URL パラメータ `log`。サーバが他のサイトからの読み込みを許していること (CORS) が要る。https のページからは、localhost 以外の http:// の URL を読めない。読めなければ、ステータスバーに URL を新しいタブで開くリンクを出す (保存したファイルを開いてもらう)。ダウンロードの進捗を出し、別のログを開くか接続すると、ダウンロードをやめる |
+| URL を指定してログを開く | (rcssmonitor にない) | 20.0.0 | 済 | File > Open Game Log from URL、または URL パラメータ `log`。サーバが他のサイトからの読み込みを許していること (CORS) が要る。https のページからは、localhost 以外の http:// の URL を読めない。読めなければ、ステータスバーに URL を新しいタブで開くリンクを出す (保存したファイルを開いてもらう)。ダウンロードの進捗を出し、別のログを開くか接続すると、ダウンロードをやめる。GitHub のファイルのページ (`github.com/…/blob/…`) と raw のリンクは `raw.githubusercontent.com` から読み、Git LFS のファイルは `media.githubusercontent.com` から読む (公開リポジトリのみ) |
 | JSON rcg、テキスト rcg v4〜v6、gzip | rcss/rcg/parser.cpp:56-131 | 1 | 済 | Worker で解析する。不正な行は飛ばして警告にする。テキスト rcg の `stime` は推定する |
 | バイナリ rcg v1〜v3 | rcss/rcg/parser_v1〜v3 | 将来 | 対象外 | |
 | 読み込みの進捗表示 | rcg_handler.cpp:59-123 | 1 | 済 | ステータスバーに展開と解析の進捗を出す |

@@ -201,3 +201,64 @@ test('gives up the download to connect to a server', async ({ page }) => {
   await expect(page.locator('#load-progress')).toBeHidden();
   await expect.poll(() => logs.held[0]?.destroyed || logs.held[0]?.req.destroyed).toBe(true);
 });
+
+/**
+ * Answers for GitHub's hosts from the fixtures, as they answer for a public
+ * repository o/r: the raw file, or with `lfs` a Git LFS pointer there and
+ * the file on the media host (404 there otherwise). Records the URLs asked.
+ */
+async function routeGitHub(page: Page, lfs: boolean): Promise<string[]> {
+  const asked: string[] = [];
+  const cors = { 'Access-Control-Allow-Origin': '*' };
+  await page.route(/^https:\/\/([\w-]+\.)?github(usercontent)?\.com\//, async (route) => {
+    const url = route.request().url();
+    asked.push(url);
+    const m =
+      /^https:\/\/(raw|media)\.githubusercontent\.com\/(?:media\/)?o\/r\/main\/logs\/([\w.-]+)$/.exec(
+        url,
+      );
+    if (!m?.[2] || (m[1] === 'media' && !lfs)) {
+      // Pages on github.com come without CORS, as they do there.
+      await route.fulfill({ status: m ? 404 : 200, headers: m ? cors : {}, body: '' });
+      return;
+    }
+    const body = readFileSync(fixture(m[2]));
+    const pointer =
+      'version https://git-lfs.github.com/spec/v1\n' +
+      `oid sha256:${'0'.repeat(64)}\nsize ${body.length}\n`;
+    await route.fulfill(
+      m[1] === 'raw' && lfs
+        ? { headers: { ...cors, 'Content-Type': 'text/plain' }, body: pointer }
+        : { headers: { ...cors, 'Content-Type': 'application/octet-stream' }, body },
+    );
+  });
+  return asked;
+}
+
+test('opens a log stored with Git LFS from its GitHub file page', async ({ page }) => {
+  await openApp(page);
+  const asked = await routeGitHub(page, true);
+  await openUrlDialog(page);
+  const blob = 'https://github.com/o/r/blob/main/logs/json-sample.rcg.gz';
+  await page.locator('#open-url').fill(blob);
+  await page.locator('#open-url-dialog-ok').click();
+  await expect(result(page)).toHaveText(
+    'json-sample.rcg.gz: JSON (gzip), 267 frames, cycles 1-6000, HELIOS2023 0-0 CYRUS',
+  );
+  expect(asked).toEqual([
+    'https://raw.githubusercontent.com/o/r/main/logs/json-sample.rcg.gz',
+    'https://media.githubusercontent.com/media/o/r/main/logs/json-sample.rcg.gz',
+  ]);
+  // The dialog offers what was typed.
+  await openUrlDialog(page);
+  await expect(page.locator('#open-url')).toHaveValue(blob);
+});
+
+test('opens the GitHub raw link of ?log= from raw.githubusercontent.com', async ({ page }) => {
+  // Routes are per page: set them up on a blank page, then open the app.
+  const asked = await routeGitHub(page, false);
+  const link = 'https://github.com/o/r/raw/main/logs/text-v5-sample.rcg.gz';
+  await openApp(page, `?log=${encodeURIComponent(link)}`);
+  await expect(result(page)).toHaveText(/^text-v5-sample\.rcg\.gz: text v5 \(gzip\), 312 frames/);
+  expect(asked).toEqual(['https://raw.githubusercontent.com/o/r/main/logs/text-v5-sample.rcg.gz']);
+});

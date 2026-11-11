@@ -1,5 +1,6 @@
 // File > Open Game Log from URL (not in rcssmonitor): asks for the URL of a
-// log to download and open. A URL relative to the page is taken too.
+// log to download and open. A URL relative to the page is taken too, and a
+// GitHub file page is read from its raw file (io/fetch-log.ts).
 import { isMixedContent, parseLogUrl } from '../../io/fetch-log';
 import { el, formDialog, row, runDialog } from './dialog';
 
@@ -43,7 +44,12 @@ export function showOpenUrlDialog(parent: HTMLElement, initial: string): Promise
   update();
 
   d.buttons.before(
-    row('URL', input, '.rcg or .rcg.gz. The server must let other sites read it (CORS).'),
+    row(
+      'URL',
+      input,
+      '.rcg or .rcg.gz. The server must let other sites read it (CORS). ' +
+        'GitHub file pages work too (public repositories, also with Git LFS).',
+    ),
     warning,
   );
 

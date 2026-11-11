@@ -443,9 +443,12 @@ rcssmonitor にない機能。Web 上のログを、手元に保存せずに開�
   - 読めない主な理由は、サーバが他のサイトからの読み込みを許していないこと (CORS) と、https のページから http:// の URL を読めないこと (mixed content)。どちらもブラウザの制限で、アプリからは避けられない。ページの JavaScript は、ブラウザに保存させたファイルも読めない。
   - ブラウザは、CORS による拒否とネットワークの失敗を区別して知らせない。そのため両方の可能性を示す。mixed content は URL から判定できるので、ダイアログでは入力中にも警告する。
   - サーバが応答を返した場合 (404 など) は、HTTP の状態を示し、リンクは出さない。
+- GitHub の公開リポジトリのファイルを、ページの URL (`github.com/OWNER/REPO/blob/REF/PATH`) でも開けるようにする (2026-11-11 にユーザが求めた)。
+  - github.com のページと raw のリンク (`…/raw/…`) は、他のサイトから読めない (raw のリンクは raw.githubusercontent.com への転送で、転送の応答に CORS の許可がない)。そこで、GitHub の raw のリンクと同じ規則で `raw.githubusercontent.com/OWNER/REPO/REF/PATH` に読み替える。raw.githubusercontent.com は `Access-Control-Allow-Origin: *` を返す。
+  - Git LFS で置かれたファイルは、raw.githubusercontent.com ではポインタ (version、oid、size の 3 行) になる。ポインタが届いたら、`media.githubusercontent.com/media/OWNER/REPO/REF/PATH` から実体を読み直す (これも `*` を返す)。media は LFS でないファイルには 404 を返すので、先に raw を読む。
 - README と `docs/parity.md` を直す。
 
-**完了条件**: 単体テスト (URL の解釈と検証、表示する名前、mixed content の判定、取得と進捗、HTTP の失敗、中止) と E2E テスト (Chromium と Firefox) が通る。E2E テストでは、file:// で開いた単一 HTML から、別のポートで動く HTTP サーバのログを、メニューと `?log=` で開ける。CORS を許さないサーバではダウンロードの案内が出る。`?log=` と `connect=1` を両方指定するとログを開く。
+**完了条件**: 単体テスト (URL の解釈と検証、表示する名前、mixed content の判定、取得と進捗、HTTP の失敗、中止) と E2E テスト (Chromium と Firefox) が通る。E2E テストでは、file:// で開いた単一 HTML から、別のポートで動く HTTP サーバのログを、メニューと `?log=` で開ける。CORS を許さないサーバではダウンロードの案内が出る。`?log=` と `connect=1` を両方指定するとログを開く。GitHub のページの URL と raw のリンクで、raw.githubusercontent.com から開ける。LFS のポインタなら media.githubusercontent.com から開ける (GitHub への要求は E2E テストの中で横取りして答える)。
 
 ### 将来の拡張 (rcssmonitor にない機能。初回の正式リリース 20.0.0 の対象外)
 
@@ -909,4 +912,16 @@ asio 版サーバで見つかった問題 (サーバ側で対応を検討する)
 - 読めなかったときのリンクは、ステータスバーの文の直後に置いた。文が長くて省略されても、リンクは残る。ステータスバーを隠していると見えないのは、ほかの読み込みのエラーと同じ。
 - URL のダイアログは、長い URL が見えるよう、ほかのダイアログより広くした (最大 640 px)。
 - `log` の値の URL に `&`、`#`、`+` が入る場合は、エスケープが要る (README に書いた)。
-- まだ確かめていないこと: Pages 版 (https) からの読み込みと、http:// の URL を入力したときの警告。実際の公開サーバ (GitHub の raw など) のログ。次に Pages を公開するときに確かめる。
+- まだ確かめていないこと: Pages 版 (https) からの読み込みと、http:// の URL を入力したときの警告。次に Pages を公開するときに確かめる。
+- 手元の確認 (ユーザ): Web に置いたログを開けた。
+
+**GitHub のファイルの URL と Git LFS (2026-11-11)**
+- ユーザの求め: GitHub のリポジトリのログを、ページの URL (例 `https://github.com/rcsoccersim/RoboCup2026/blob/main/logs/Finals/….rcg.gz`) で開きたい。できそうなら Git LFS にも対応する。
+- 調べたこと (curl で `Origin: null` を付けて要求した):
+  - `github.com/…/blob/…` は HTML のページで、CORS の許可がない。`github.com/…/raw/…` は 302 で raw.githubusercontent.com (LFS なら media.githubusercontent.com) へ転送し、その応答の `Access-Control-Allow-Origin` は空。
+  - `raw.githubusercontent.com` と `media.githubusercontent.com` は `Access-Control-Allow-Origin: *` を返す。media は LFS でないファイルに 404 を返す。どちらも `refs/heads/BRANCH` の形の参照を受け付ける。
+- 実装: `parseLogUrl` で github.com の `blob` と `raw` の URL を raw.githubusercontent.com に読み替える (問い合わせと断片は捨てる。http:// でも https の raw にする)。`fetchLog` は、届いたものが LFS のポインタ (1024 バイト未満で、版の行で始まる) なら media から読み直す。進捗の全体は、media が Content-Length を返さなければポインタの size を使う。GitHub 以外のサーバがポインタを返したときは、その旨のエラーにする。
+- 試験: 単体テスト 10 件 (URL の読み替えと対象外の URL、media の URL、ポインタの判定、fetch を差し替えて LFS をたどること、LFS でないファイルは 1 回で読むこと、media の 404、GitHub 以外のポインタ)。E2E テスト 2 件 (Chromium と Firefox。GitHub の 3 つのホストへの要求を Playwright で横取りして答える)。
+- 実際の GitHub での確認 (Chromium と Firefox、file:// の単一 HTML): RoboCup2026 の決勝のログを、ページの URL と raw のリンクで開けた (text v6、6,469 フレーム、HELIOS2026 0-1 YuShan2026)。LFS のファイルは、ログの公開リポジトリが見つからないので、Unity-Technologies/FPSSample の fbx で試した。raw からポインタ (130 バイト)、media から実体 (870,464 バイト) を読み、形式の判定まで進んだ (ログではないので「unsupported log format」)。
+- 非公開リポジトリのファイルは、raw.githubusercontent.com が 404 を返すので開けない (ブラウザのログイン情報は送らない)。
+- 単体テスト 280 件と E2E テスト 138 件 (Chromium と Firefox) が通った。

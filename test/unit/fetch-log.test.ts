@@ -1,12 +1,15 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { gunzipSync, gzipSync } from 'node:zlib';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { formatBytes } from '../../src/core/number-format';
 import {
   fetchLog,
+  githubLfsUrl,
+  githubRawUrl,
   HttpError,
   isMixedContent,
+  lfsPointerSize,
   logNameFromUrl,
   parseLogUrl,
 } from '../../src/io/fetch-log';
@@ -46,6 +49,76 @@ describe('parseLogUrl', () => {
     expect(() => parseLogUrl('game.rcg', 'file:///home/user/rcssmonitor-web.html')).toThrow(
       'not an http:// or https:// URL: game.rcg',
     );
+  });
+});
+
+describe('GitHub URLs', () => {
+  const raw = (url: string) => githubRawUrl(new URL(url))?.href ?? null;
+  const LOG = 'logs/Finals/202607050404-HELIOS2026_0-vs-YuShan2026_1.rcg.gz';
+
+  it('reads a file page or a raw link from raw.githubusercontent.com', () => {
+    const expected = `https://raw.githubusercontent.com/rcsoccersim/RoboCup2026/main/${LOG}`;
+    expect(raw(`https://github.com/rcsoccersim/RoboCup2026/blob/main/${LOG}`)).toBe(expected);
+    expect(raw(`https://github.com/rcsoccersim/RoboCup2026/raw/main/${LOG}`)).toBe(expected);
+    expect(raw(`https://www.github.com/rcsoccersim/RoboCup2026/blob/main/${LOG}`)).toBe(expected);
+    // The page's query and fragment are not part of the file.
+    expect(raw(`https://github.com/rcsoccersim/RoboCup2026/blob/main/${LOG}?raw=true#L1`)).toBe(
+      expected,
+    );
+    // Branches with slashes and full refs stay as they are, as GitHub's raw link does.
+    expect(raw('https://github.com/o/r/blob/feature/x/a%20b.rcg')).toBe(
+      'https://raw.githubusercontent.com/o/r/feature/x/a%20b.rcg',
+    );
+    expect(raw('https://github.com/o/r/blob/refs/heads/main/game.rcg')).toBe(
+      'https://raw.githubusercontent.com/o/r/refs/heads/main/game.rcg',
+    );
+  });
+
+  it('leaves other URLs alone', () => {
+    expect(raw('https://github.com/rcsoccersim/RoboCup2026')).toBeNull();
+    expect(raw('https://github.com/rcsoccersim/RoboCup2026/tree/main/logs')).toBeNull();
+    expect(raw('https://github.com/o/r/blob/')).toBeNull();
+    expect(raw(`https://raw.githubusercontent.com/o/r/main/game.rcg`)).toBeNull();
+    expect(raw('https://example.org/o/r/blob/main/game.rcg')).toBeNull();
+  });
+
+  it('turns GitHub file pages into raw URLs when parsing, also from http://', () => {
+    expect(
+      parseLogUrl(`http://github.com/rcsoccersim/RoboCup2026/blob/main/${LOG}`, PAGE).href,
+    ).toBe(`https://raw.githubusercontent.com/rcsoccersim/RoboCup2026/main/${LOG}`);
+  });
+
+  it('finds the Git LFS object of a raw file on media.githubusercontent.com', () => {
+    expect(
+      githubLfsUrl(new URL('https://raw.githubusercontent.com/o/r/main/a/game.rcg'))?.href,
+    ).toBe('https://media.githubusercontent.com/media/o/r/main/a/game.rcg');
+    expect(githubLfsUrl(new URL('https://example.org/o/r/main/game.rcg'))).toBeNull();
+  });
+});
+
+/** A Git LFS pointer file for a file of `size` bytes. */
+const lfsPointer = (size: number) =>
+  new TextEncoder().encode(
+    'version https://git-lfs.github.com/spec/v1\n' +
+      'oid sha256:e34fc2431000f093ce95a9681d8d8e0ebb551296c62cf152345cb68a78e3a0c7\n' +
+      `size ${size}\n`,
+  );
+
+describe('lfsPointerSize', () => {
+  it('reads the size of a pointer', () => {
+    expect(lfsPointerSize(lfsPointer(870464))).toBe(870464);
+  });
+
+  it('is null for anything else', () => {
+    expect(lfsPointerSize(fixture('json-sample.rcg.gz'))).toBeNull();
+    expect(lfsPointerSize(new TextEncoder().encode('ULG\n'))).toBeNull();
+    expect(lfsPointerSize(new Uint8Array())).toBeNull();
+    const noSize = 'version https://git-lfs.github.com/spec/v1\noid sha256:00\n';
+    expect(lfsPointerSize(new TextEncoder().encode(noSize))).toBeNull();
+    // A pointer is under 1024 bytes; a log that starts like one is not one.
+    const long = new Uint8Array(2048);
+    long.set(lfsPointer(10));
+    expect(lfsPointerSize(long)).toBeNull();
   });
 });
 
@@ -188,6 +261,62 @@ describe('fetchLog', () => {
     await new Promise((resolve) => server?.close(resolve));
     server = null;
     await expect(fetchLog(unused)).rejects.toBeInstanceOf(TypeError);
+  });
+});
+
+describe('fetchLog with Git LFS on GitHub', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const gz = fixture('json-sample.rcg.gz');
+  const RAW = 'https://raw.githubusercontent.com/o/r/main/logs/game.rcg.gz';
+  const MEDIA = 'https://media.githubusercontent.com/media/o/r/main/logs/game.rcg.gz';
+
+  /** Answers fetch() from a table of URLs, as GitHub's hosts would; logs what was asked. */
+  function stubFetch(table: Record<string, () => Response>): string[] {
+    const asked: string[] = [];
+    vi.stubGlobal('fetch', (input: URL | string) => {
+      const url = String(input);
+      asked.push(url);
+      const answer = table[url];
+      return Promise.resolve(answer ? answer() : new Response('', { status: 404 }));
+    });
+    return asked;
+  }
+
+  it('follows a pointer to the file, with the size of the pointer as the total', async () => {
+    const asked = stubFetch({
+      [RAW]: () => new Response(lfsPointer(gz.length)),
+      // Without Content-Length.
+      [MEDIA]: () => new Response(gz),
+    });
+    const progress: [number, number | undefined][] = [];
+    const buffer = await fetchLog(new URL(RAW), {
+      progress: (received, total) => progress.push([received, total]),
+    });
+    expect(asked).toEqual([RAW, MEDIA]);
+    expect(new Uint8Array(buffer)).toEqual(gz);
+    expect(progress.at(-1)).toEqual([gz.length, gz.length]);
+  });
+
+  it('reads a file not in LFS once', async () => {
+    const asked = stubFetch({ [RAW]: () => new Response(gz) });
+    expect(new Uint8Array(await fetchLog(new URL(RAW)))).toEqual(gz);
+    expect(asked).toEqual([RAW]);
+  });
+
+  it('tells the HTTP status of the LFS object', async () => {
+    stubFetch({ [RAW]: () => new Response(lfsPointer(gz.length)) });
+    await expect(fetchLog(new URL(RAW))).rejects.toThrow('HTTP 404');
+  });
+
+  it('cannot follow a pointer from another server', async () => {
+    const other = 'https://example.org/logs/game.rcg.gz';
+    stubFetch({ [other]: () => new Response(lfsPointer(gz.length)) });
+    await expect(fetchLog(new URL(other))).rejects.toThrow(
+      'the server gave a Git LFS pointer instead of the file',
+    );
   });
 });
 
