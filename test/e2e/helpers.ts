@@ -36,8 +36,17 @@ export function requireBuild(): void {
 }
 
 /** Opens the single-file build from file://, as users on a LAN do. */
+/**
+ * Opens the app with `query` (from its `?`). Without the 3D view's shadows
+ * unless the query sets them: their map, drawn in software on CI, makes
+ * every frame of the 3D view slow enough for tests that wait on frames to
+ * time out. The tests of the shadows turn them on.
+ */
 export async function openApp(page: Page, query = ''): Promise<void> {
-  await page.goto(pathToFileURL(singleHtml).href + query);
+  const q = /[?&]shadows[_-]3d=/.test(query)
+    ? query
+    : `${query}${query.includes('?') ? '&' : '?'}shadows_3d=off`;
+  await page.goto(pathToFileURL(singleHtml).href + q);
 }
 
 export async function loadLog(page: Page, name: string): Promise<void> {

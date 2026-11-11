@@ -1180,6 +1180,8 @@ test('writes the numbers from the top camera as large as the 2D player font', as
 test('draws the players as human figures, but cylinders from above and when unseen', async ({
   page,
 }) => {
+  // The 22 figures are slow to draw in software (CI).
+  test.slow();
   // Without the shadows: in software, the 22 figures drawn twice are slow on CI.
   await openApp(page, '?view_3d=on&camera_3d=broadcast&player_model_3d=figure&shadows_3d=off');
   await wait3d(page);
@@ -1402,8 +1404,10 @@ test('follows the ball or the selected player close up, the wheel setting the di
 test('plays the figures from the log: fouls, and the same pose however a frame is reached', async ({
   page,
 }) => {
-  // Without the shadows: in software, the 22 figures drawn twice are slow on CI.
-  await openApp(page, '?view_3d=on&camera_3d=broadcast&player_model_3d=figure&shadows_3d=off');
+  // The 22 figures are slow to draw in software (CI): from the free camera,
+  // which does not glide after a jump or a step, each is drawn once.
+  test.slow();
+  await openApp(page, '?view_3d=on&camera_3d=free&player_model_3d=figure&shadows_3d=off');
   await wait3d(page);
   await loadLog(page, 'json-sample.rcg.gz');
   await expect.poll(async () => (await scene(page))?.figures?.ready).toBe(true);
@@ -1457,7 +1461,8 @@ test('plays the figures from the log: fouls, and the same pose however a frame i
 test('casts the shadows of the players from the sun, but not from the top camera', async ({
   page,
 }) => {
-  await openApp(page, '?view_3d=on&camera_3d=broadcast');
+  // On by default (the unit tests); the other tests turn them off (openApp).
+  await openApp(page, '?view_3d=on&camera_3d=broadcast&shadows_3d=on');
   await wait3d(page);
   await loadLog(page, 'json-sample.rcg.gz');
   const shadows = async () => (await scene(page))?.shadows;
@@ -1487,7 +1492,7 @@ test('draws the cylinders where they are the first time after the figures', asyn
   // With the figures and the shadows, the cylinders were sent to the GPU
   // only in the shadow pass; the first frame from above, without one, drew
   // them as they were made: all at the field's center.
-  await openApp(page, '?view_3d=on&camera_3d=broadcast&player_model_3d=figure');
+  await openApp(page, '?view_3d=on&camera_3d=broadcast&player_model_3d=figure&shadows_3d=on');
   await wait3d(page);
   await loadLog(page, 'json-sample.rcg.gz');
   await expect.poll(async () => (await scene(page))?.figures?.ready).toBe(true);
