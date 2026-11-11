@@ -429,11 +429,42 @@ Phase 6 の 3D 表示を、正式版の前にベータとして試してもら�
 
 **完了条件**: タグ `v20.0.0-beta.2` の Pre-release に単一 HTML と dist の zip が添付され、Pages が公開される。添付の単一 HTML と Pages で、ログの再生と 3D 表示を確かめる。
 
+### URL を指定してログを開く (20.0.0 に含める)
+
+rcssmonitor にない機能。Web 上のログを、手元に保存せずに開けるようにする。初めは将来の拡張に挙げていたが、2026-11-11 にユーザが 20.0.0 に含めると決めた。
+
+**作業**
+- File メニューに「Open Game Log from URL...」を加える。ダイアログで URL を入力し、取得したデータを、ファイルと同じ Worker の解析に渡す。gzip は先頭のバイトで見分けるので、サーバが圧縮したまま返しても、展開して返しても読める。前に開いた URL を入力欄に入れておく (保存はしない)。
+- URL パラメータ `log` (`?log=URL`) で、起動時にそのログを開く。rcssmonitor のコマンドラインでログファイルを指定した場合に当たり、rcssmonitor と同じく `connect` より優先する。ほかの URL パラメータと同じく保存しない。
+  - リンク 1 つで試合を見せられる (大会の結果ページやログ置き場から、試合ごとにリンクを置ける)。表示の設定と組み合わせられ、再読み込みしても同じ試合が開く。
+  - ページと同じ場所からの相対 URL も受け付ける。http と https 以外の URL は開かない。
+- ダウンロードの進捗をステータスバーに出す。ダウンロード中に別のログを開くか、サーバに接続すると、ダウンロードをやめる。接続中にダウンロードを始めた場合は、ダウンロードが済んでから切断する (失敗しても接続が残る)。
+- 直接読めないときは、その旨と、URL を新しいタブで開くリンクをステータスバーに出す。ユーザは保存したファイルを、Open Game Log かドラッグ＆ドロップで開く。
+  - 読めない主な理由は、サーバが他のサイトからの読み込みを許していないこと (CORS) と、https のページから http:// の URL を読めないこと (mixed content)。どちらもブラウザの制限で、アプリからは避けられない。ページの JavaScript は、ブラウザに保存させたファイルも読めない。
+  - ブラウザは、CORS による拒否とネットワークの失敗を区別して知らせない。そのため両方の可能性を示す。mixed content は URL から判定できるので、ダイアログでは入力中にも警告する。
+  - サーバが応答を返した場合 (404 など) は、HTTP の状態を示し、リンクは出さない。
+- GitHub の公開リポジトリのファイルを、ページの URL (`github.com/OWNER/REPO/blob/REF/PATH`) でも開けるようにする (2026-11-11 にユーザが求めた)。
+  - github.com のページと raw のリンク (`…/raw/…`) は、他のサイトから読めない (raw のリンクは raw.githubusercontent.com への転送で、転送の応答に CORS の許可がない)。そこで、GitHub の raw のリンクと同じ規則で `raw.githubusercontent.com/OWNER/REPO/REF/PATH` に読み替える。raw.githubusercontent.com は `Access-Control-Allow-Origin: *` を返す。
+  - Git LFS で置かれたファイルは、raw.githubusercontent.com ではポインタ (version、oid、size の 3 行) になる。ポインタが届いたら、`media.githubusercontent.com/media/OWNER/REPO/REF/PATH` から実体を読み直す (これも `*` を返す)。media は LFS でないファイルには 404 を返すので、先に raw を読む。
+- README と `docs/parity.md` を直す。
+
+**完了条件**: 単体テスト (URL の解釈と検証、表示する名前、mixed content の判定、取得と進捗、HTTP の失敗、中止) と E2E テスト (Chromium と Firefox) が通る。E2E テストでは、file:// で開いた単一 HTML から、別のポートで動く HTTP サーバのログを、メニューと `?log=` で開ける。CORS を許さないサーバではダウンロードの案内が出る。`?log=` と `connect=1` を両方指定するとログを開く。GitHub のページの URL と raw のリンクで、raw.githubusercontent.com から開ける。LFS のポインタなら media.githubusercontent.com から開ける (GitHub への要求は E2E テストの中で横取りして答える)。
+
+### プレリリース 20.0.0-beta.3 (URL を指定してログを開く機能の後)
+
+URL を指定してログを開く機能を、正式版の前にベータとして試してもらう (2026-11-11 にユーザが決めた)。
+
+**作業**
+- `feature/open-url` を develop に取り込み (PR #4)、develop で版を `20.0.0-beta.3` に上げ、リリースノート (`docs/release-notes/v20.0.0-beta.3.md`) を書き、README を直す。
+- develop を main に取り込み、main でタグ `v20.0.0-beta.3` を付けて push する (`docs/release.md`)。
+
+**完了条件**: タグ `v20.0.0-beta.3` の Pre-release に単一 HTML と dist の zip が添付され、Pages が公開される。添付の単一 HTML と Pages で、URL からログを開けることを確かめる。Pages 版では、URL の機能で残した確認 (https のページから GitHub のログを開けること、http:// の URL を入力したときにダイアログが警告すること) も行う。
+
 ### 将来の拡張 (rcssmonitor にない機能。初回の正式リリース 20.0.0 の対象外)
 
 - ドラッグで選手を移動する (`(dispplayer SIDE UNUM X Y ANG)`。ANG は 16 倍せず整数の度で送る)。
 - ボールや選手の軌跡表示、msg の一覧パネル、`stime` の表示。
-- バイナリ rcg (v1〜v3)、URL を指定してログを開く機能 (`?log=`)。
+- バイナリ rcg (v1〜v3)。
 - rcssserver 自身による静的ファイル配信 (同じオリジンになり、Origin や mixed content の問題がなくなる)。
 - 2.5 次元シミュレータ (ボールが空中を飛ぶ) への対応のうち、サーバの形式が決まるまで決められないもの。Phase 6 では、ボールの高さを受け取って 3D に描くところまでを用意する。
   - プロトコルとログの形式: JSON のキー名と単位、テキスト rcg の新しい版、選手にも高さ (ジャンプ、ヘディング、キーパーの飛びつき) があるか。
@@ -864,3 +895,45 @@ asio 版サーバで見つかった問題 (サーバ側で対応を検討する)
 - develop を main に取り込み (PR #2、取り込みのコミット `6a22a7e`)、main の CI が通った後、ユーザが `v20.0.0-beta.2` を付けて push した。
 - Release ワークフローの E2E テストが、2 回とも 1 件の時間切れで止まった (リリースと Pages のジョブは動いていないので、何も公開されていない)。1 回目は人型の姿勢のテスト (テスト全体の 30 秒)、再実行では、ライブで 1 サイクル遅れて描くテスト (5 秒の待ち)。同じコミットの main の CI では、E2E テストは 2.0 分ですべて通ったが、Release のランナーでは 2.8 分かかった。CI のソフトウェア描画で、既定でオンの影 (4096 px 四方の地図) と人型 22 体の描画が重く、時間の余裕の少ないテストがはみ出した。
 - テストを直した: E2E テストのページは、問い合わせに `shadows_3d` がなければ影を切って開く (`openApp`)。影を確かめる 2 つのテストだけが `shadows_3d=on` にする。人型の姿勢のテストは、跳ぶたびに滑らかに動かない自由カメラで開く (Chromium で 4.7 秒から 2.7 秒)。人型の 2 つのテストは `test.slow()` (制限を 3 倍) にした。develop から main に取り込み、タグを付け直す。
+
+**完了条件の確認**
+- develop を main に取り込み直し (PR #3、取り込みのコミット `ed36941`)、ユーザがタグ `v20.0.0-beta.2` を付け直して push した。Release ワークフローの 3 つのジョブ (確認とビルド、リリース、Pages) が成功した (E2E テストは 2.5 分で 116 件が通過)。Ubuntu 26.04 と Node.js 24 のアクション (upload-artifact v7、download-artifact v8) でも動いた。
+- リリースは Pre-release の印付きで公開され、単一 HTML (`rcssmonitor-web-v20.0.0-beta.2.html`、1.38 MB) と dist の zip (386 kB) が添付された。本文は `docs/release-notes/v20.0.0-beta.2.md` から入った。
+- 添付の単一 HTML をダウンロードして file:// で開いた場合と、Pages (`https://hidehisaakiyama.github.io/rcssmonitor-web/`) の場合の両方で、Chromium と Firefox で、ログを読み込み、3D 表示に切り替えて、人型 22 体を描けた。読み込みの失敗やページのエラーはなかった。About の版は `20.0.0-beta.2 (ed36941)`。
+
+### URL を指定してログを開く (2026-11-11)
+
+**完了条件の確認**
+- 単体テスト 13 件 (`test/unit/fetch-log.test.ts`) を加えた。対象は次のとおり。
+  - URL の解釈と検証 (ページからの相対 URL、http と https 以外の URL、ユーザ名の入った URL)、表示する名前、mixed content の判定
+  - 取得 (Node の HTTP サーバから。進捗、Content-Length がない場合、転送中の圧縮で届いた量が Content-Length を上回る場合、404、中止、つながらない場合)、バイト数の書式
+- E2E テスト 7 件 (`test/e2e/open-url.spec.ts`。Chromium と Firefox で 14 件) を加えた。file:// で開いた単一 HTML から、別のポートの HTTP サーバのログを読む。
+  - メニューから開く。次にダイアログを開くと、前の URL が入っている
+  - 開けない URL (http と https 以外、file:// になる相対 URL) では OK でダイアログが閉じない
+  - `?log=` と `connect=1` を両方指定すると、接続せずにログを開く
+  - CORS を許さないサーバでは、ダウンロードの案内とリンクが出る。リンクでダウンロードが始まり、保存したファイルを開くとリンクが消える
+  - 404 では HTTP の状態を示し、リンクを出さない
+  - ダウンロードの進捗を出し、ファイルを開くか、サーバに接続すると、ダウンロードをやめる (接続での中止を外すと落ちることを確かめた)
+- 単体テスト 270 件と E2E テスト 134 件 (Chromium と Firefox) が通った。
+
+**実装で決めたこと**
+- 取得の処理は `src/io/fetch-log.ts` に置いた (DOM に依存しない)。応答の本体を少しずつ読み、進捗を出す。Content-Length がないときと、転送中の圧縮 (Content-Encoding) で届いた量が Content-Length を上回るときは、割合の代わりにバイト数を出す (進捗のバーは不定の表示)。
+- ダウンロード中に別の URL を開いても、前のダウンロードをやめる。解析中は、ファイルの場合と同じく次のログを受け付けない。
+- 読めなかったときのリンクは、ステータスバーの文の直後に置いた。文が長くて省略されても、リンクは残る。ステータスバーを隠していると見えないのは、ほかの読み込みのエラーと同じ。
+- URL のダイアログは、長い URL が見えるよう、ほかのダイアログより広くした (最大 640 px)。
+- `log` の値の URL に `&`、`#`、`+` が入る場合は、エスケープが要る (README に書いた)。
+- まだ確かめていないこと: Pages 版 (https) からの読み込みと、http:// の URL を入力したときの警告。次に Pages を公開するときに確かめる。
+- 手元の確認 (ユーザ): Web に置いたログを開けた。
+
+**GitHub のファイルの URL と Git LFS (2026-11-11)**
+- ユーザの求め: GitHub のリポジトリのログを、ページの URL (例 `https://github.com/rcsoccersim/RoboCup2026/blob/main/logs/Finals/….rcg.gz`) で開きたい。できそうなら Git LFS にも対応する。
+- 調べたこと (curl で `Origin: null` を付けて要求した):
+  - `github.com/…/blob/…` は HTML のページで、CORS の許可がない。`github.com/…/raw/…` は 302 で raw.githubusercontent.com (LFS なら media.githubusercontent.com) へ転送し、その応答の `Access-Control-Allow-Origin` は空。
+  - `raw.githubusercontent.com` と `media.githubusercontent.com` は `Access-Control-Allow-Origin: *` を返す。media は LFS でないファイルに 404 を返す。どちらも `refs/heads/BRANCH` の形の参照を受け付ける。
+- 実装: `parseLogUrl` で github.com の `blob` と `raw` の URL を raw.githubusercontent.com に読み替える (問い合わせと断片は捨てる。http:// でも https の raw にする)。`fetchLog` は、届いたものが LFS のポインタ (1024 バイト未満で、版の行で始まる) なら media から読み直す。進捗の全体は、media が Content-Length を返さなければポインタの size を使う。GitHub 以外のサーバがポインタを返したときは、その旨のエラーにする。
+- 試験: 単体テスト 10 件 (URL の読み替えと対象外の URL、media の URL、ポインタの判定、fetch を差し替えて LFS をたどること、LFS でないファイルは 1 回で読むこと、media の 404、GitHub 以外のポインタ)。E2E テスト 2 件 (Chromium と Firefox。GitHub の 3 つのホストへの要求を Playwright で横取りして答える)。
+- 実際の GitHub での確認 (Chromium と Firefox、file:// の単一 HTML): RoboCup2026 の決勝のログを、ページの URL と raw のリンクで開けた (text v6、6,469 フレーム、HELIOS2026 0-1 YuShan2026)。LFS のファイルは、ログの公開リポジトリが見つからないので、Unity-Technologies/FPSSample の fbx で試した。raw からポインタ (130 バイト)、media から実体 (870,464 バイト) を読み、形式の判定まで進んだ (ログではないので「unsupported log format」)。
+- 非公開リポジトリのファイルは、raw.githubusercontent.com が 404 を返すので開けない (ブラウザのログイン情報は送らない)。
+- 単体テスト 280 件と E2E テスト 138 件 (Chromium と Firefox) が通った。
+- PR #4 (feature/open-url → develop) の CI で、単体テスト「reads a log the server compresses on the way」が 5 秒の制限を超えて落ちた (同じコミットの push の CI では通っていた)。止まっていたのではなく遅かった。取得したバイト列を `toEqual` で比べていて、展開後の 2.3 MB を 1 要素ずつ比べるのに手元でも約 3 秒かかり、テストファイルを並べて流す CI の負荷で制限を超えた。`Buffer.equals` で一度に比べる形に改め、3.2 秒から 0.04 秒になった (ほかの取得のテストも 0.3 秒から数ミリ秒に)。
+- PR #4 の CI が通り、ユーザが develop に取り込んだ (取り込みのコミット `bc21a11`)。プレリリース 20.0.0-beta.3 に入れる。

@@ -2,6 +2,8 @@
 // the dialogs, and the wiring between the log loader, the live connection,
 // the log player, the view and the settings (rcssmonitor src/main_window.cpp).
 import type { GameStore } from '../core/game-store';
+import { formatBytes } from '../core/number-format';
+import { fetchLog, HttpError, isMixedContent, logNameFromUrl, parseLogUrl } from '../io/fetch-log';
 import { describeFormat } from '../io/format';
 import { LiveClient, type LiveState } from '../io/live/client';
 import { loadLogFile, type LoadedLog } from '../io/log-loader';
@@ -35,6 +37,7 @@ import { ContextMenu, type MenuItem } from './context-menu';
 import { ConfigDialog } from './dialogs/config-dialog';
 import { showConnectDialog } from './dialogs/connect-dialog';
 import { createShortcutDialog, showAboutDialog } from './dialogs/help-dialogs';
+import { showOpenUrlDialog } from './dialogs/open-url-dialog';
 import type { Panel } from './dialogs/panel';
 import { PlayerTypeDialog } from './dialogs/player-type-dialog';
 import { FieldView } from './field-view';
@@ -72,7 +75,12 @@ export class App {
   private readonly menu = new ContextMenu();
   private connection: ConnectionSettings = loadConnection();
   private dialogOpen = false;
+  /** A log is being read or parsed. */
   private loading = false;
+  /** The download of a log from a URL, until its parsing starts. */
+  private download: AbortController | null = null;
+  /** The log URL opened last, offered again by Open Game Log from URL. */
+  private logUrl = '';
   private storeRevision = -1;
   private playerTypeCount = 0;
   private wheelDelta = 0;
@@ -216,7 +224,7 @@ export class App {
   /**
    * Applies the saved settings and the URL parameters (rcssmonitor's
    * command line options), e.g. ?show_view_area=on&connect=1&port=6080, and
-   * connects if asked to.
+   * opens the log (?log=URL) or connects if asked to.
    */
   start(params: URLSearchParams = new URLSearchParams()): void {
     this.settingsStore.load(params);
@@ -224,7 +232,11 @@ export class App {
     this.view.changed();
     const { settings, connect } = connectionFromUrl(this.connection, params);
     this.connection = settings;
-    if (connect) {
+    // A log comes first, as a log file on rcssmonitor's command line does.
+    const log = params.get('log')?.trim() ?? '';
+    if (log !== '') {
+      void this.openUrl(log);
+    } else if (connect) {
       this.connect(settings, false);
     }
   }
@@ -474,6 +486,11 @@ export class App {
         shortcut: `${CTRL_LABEL}O`,
         action: () => this.fileInput.click(),
       },
+      {
+        id: 'file-open-url',
+        label: 'Open Game Log from URL...',
+        action: () => void this.openUrlDialog(),
+      },
     ];
   }
 
@@ -597,38 +614,150 @@ export class App {
     ];
   }
 
+  /** Opens a log file: Open Game Log, the open button, or a drop. */
   async open(file: File): Promise<void> {
     if (this.loading) {
       return;
     }
-    // rcssmonitor disconnects before opening a log.
-    this.disconnect();
-    this.loading = true;
+    this.cancelDownload();
+    await this.parse(file.name, file.arrayBuffer());
+  }
+
+  /**
+   * Opens the log at a URL, relative to the page: Open Game Log from URL, or
+   * ?log= at start-up. A download gives way to the next log or connection.
+   */
+  async openUrl(text: string): Promise<void> {
+    if (this.loading) {
+      return;
+    }
+    this.cancelDownload();
+    this.logUrl = text.trim();
+    let url: URL;
+    try {
+      url = parseLogUrl(text, location.href);
+    } catch (error) {
+      this.status.clearMessage();
+      this.status.setText(`Cannot open the log: ${errorMessage(error)}`);
+      return;
+    }
+    const name = logNameFromUrl(url);
+    const download = new AbortController();
+    this.download = download;
+    this.showProgress(`Downloading ${name}…`);
+    let buffer: ArrayBuffer;
+    try {
+      buffer = await fetchLog(url, {
+        signal: download.signal,
+        progress: (received, total) => {
+          if (download.signal.aborted) {
+            // A piece read before the abort: the status bar is the next one's.
+            return;
+          }
+          const p = this.status.progress;
+          if (total !== undefined && received <= total) {
+            p.value = received / total;
+            this.status.setText(`Downloading ${name}… ${Math.round(p.value * 100)}%`);
+          } else {
+            p.removeAttribute('value');
+            this.status.setText(`Downloading ${name}… ${formatBytes(received)}`);
+          }
+        },
+      });
+    } catch (error) {
+      if (!download.signal.aborted) {
+        this.download = null;
+        this.status.progress.hidden = true;
+        this.downloadFailed(name, url, error);
+      }
+      return;
+    }
+    if (download.signal.aborted) {
+      return;
+    }
+    this.download = null;
+    await this.parse(name, buffer);
+  }
+
+  /** File > Open Game Log from URL: asks for the URL. */
+  async openUrlDialog(): Promise<void> {
+    if (this.dialogOpen) {
+      return;
+    }
+    this.dialogOpen = true;
+    try {
+      const url = await showOpenUrlDialog(this.root, this.logUrl);
+      if (url) {
+        void this.openUrl(url);
+      }
+    } finally {
+      this.dialogOpen = false;
+    }
+  }
+
+  /** Stops a download: another log or a connection takes over. */
+  private cancelDownload(): void {
+    if (this.download) {
+      this.download.abort();
+      this.download = null;
+      this.status.progress.hidden = true;
+      this.status.setText('');
+    }
+  }
+
+  /**
+   * Tells why a download failed. When the page may not read the URL, it
+   * offers the URL in a new tab, to save the file and open it from disk.
+   */
+  private downloadFailed(name: string, url: URL, error: unknown): void {
+    if (error instanceof HttpError) {
+      this.status.setText(`${name}: ${error.message}`, url.href);
+      return;
+    }
+    // The browser does not tell a refusal (CORS) from a network failure.
+    const reason = isMixedContent(url, location.href)
+      ? 'a page served over https may not read http:// URLs'
+      : 'the server may not let other sites read it, or it cannot be reached';
+    this.status.setText(
+      `Cannot read ${name}: ${reason}. Download it and open the file.`,
+      `${url.href}\n${errorMessage(error)}`,
+      { text: 'Download', href: url.href, title: `Open ${url.href} in a new tab` },
+    );
+  }
+
+  /** Shows the progress bar from 0 with a text. */
+  private showProgress(text: string): void {
     this.status.progress.hidden = false;
     this.status.progress.value = 0;
     this.status.clearMessage();
-    this.status.setText(`Reading ${file.name}…`);
+    this.status.setText(text);
+  }
+
+  /** Parses a log in the Worker and shows it. */
+  private async parse(name: string, data: ArrayBuffer | Promise<ArrayBuffer>): Promise<void> {
+    // rcssmonitor disconnects before opening a log.
+    this.disconnect();
+    this.loading = true;
+    this.showProgress(`Reading ${name}…`);
     try {
-      const log = await loadLogFile(await file.arrayBuffer(), {
+      const log = await loadLogFile(await data, {
         progress: (phase, fraction, store) => {
           this.status.progress.value = fraction;
           this.status.setText(
             phase === 'decompress'
-              ? `Decompressing ${file.name}… ${Math.round(fraction * 100)}%`
-              : `Parsing ${file.name}… cycle ${store.lastFrame?.time ?? 0}`,
+              ? `Decompressing ${name}… ${Math.round(fraction * 100)}%`
+              : `Parsing ${name}… cycle ${store.lastFrame?.time ?? 0}`,
           );
         },
       });
       this.setStore(log.store);
-      document.title = `${file.name} - ${TITLE}`;
+      document.title = `${name} - ${TITLE}`;
       this.status.setText(
-        `${file.name}: ${summaryLine(log)}`,
+        `${name}: ${summaryLine(log)}`,
         log.warnings.map((w) => `line ${w.line}: ${w.message}`).join('\n'),
       );
     } catch (error) {
-      this.status.setText(
-        `${file.name}: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      this.status.setText(`${name}: ${errorMessage(error)}`);
     } finally {
       this.loading = false;
       this.status.progress.hidden = true;
@@ -655,6 +784,7 @@ export class App {
 
   /** Connects with the settings; saves them if asked to. */
   connect(settings: ConnectionSettings, save = true): void {
+    this.cancelDownload();
     this.connection = settings;
     if (save) {
       saveConnection(settings);
@@ -860,4 +990,8 @@ function summaryLine({ store, result: r }: LoadedLog): string {
     `${l?.name || '(no name)'} ${l?.score ?? 0}-${rt?.score ?? 0} ${rt?.name || '(no name)'}` +
     warnings
   );
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
