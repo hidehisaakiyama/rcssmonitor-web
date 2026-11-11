@@ -1,4 +1,4 @@
-// Number formatting shared by the painters and the monitor commands.
+// Number formatting shared by the painters, the monitor commands and the status bar.
 
 /**
  * Formats like printf's %g (and the default C++ ostream output, with
@@ -21,4 +21,13 @@ export function formatG(v: number, precision = 6): string {
     return `${stripZeros(mantissa)}e${sign}${String(Math.abs(exp)).padStart(2, '0')}`;
   }
   return stripZeros(v.toFixed(precision - 1 - exp));
+}
+
+/** A byte count in SI units, as in the status bar: 512 B, 3.4 kB, 12.3 MB. */
+export function formatBytes(bytes: number): string {
+  if (bytes < 1000) {
+    return `${bytes} B`;
+  }
+  const kb = bytes / 1000;
+  return kb < 999.95 ? `${kb.toFixed(1)} kB` : `${(kb / 1000).toFixed(1)} MB`;
 }

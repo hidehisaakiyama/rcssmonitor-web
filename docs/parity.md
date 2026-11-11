@@ -84,6 +84,7 @@ rcssmonitor (Qt 版) の機能と、rcssmonitor-web での扱いをまとめた�
 | 機能 | rcssmonitor | Phase | 状態 | 備考 |
 |---|---|---|---|---|
 | ログを開く (Ctrl+O) | main_window.cpp:1743-1785 | 3 | 済 | ボタンと Ctrl+O のほか、ドラッグ＆ドロップでも開ける。開くと全体表示に戻り、先頭で止まる |
+| URL を指定してログを開く | (rcssmonitor にない) | 20.0.0 | 済 | File > Open Game Log from URL、または URL パラメータ `log`。サーバが他のサイトからの読み込みを許していること (CORS) が要る。https のページからは、localhost 以外の http:// の URL を読めない。読めなければ、ステータスバーに URL を新しいタブで開くリンクを出す (保存したファイルを開いてもらう)。ダウンロードの進捗を出し、別のログを開くか接続すると、ダウンロードをやめる。GitHub のファイルのページ (`github.com/…/blob/…`) と raw のリンクは `raw.githubusercontent.com` から読み、Git LFS のファイルは `media.githubusercontent.com` から読む (公開リポジトリのみ) |
 | JSON rcg、テキスト rcg v4〜v6、gzip | rcss/rcg/parser.cpp:56-131 | 1 | 済 | Worker で解析する。不正な行は飛ばして警告にする。テキスト rcg の `stime` は推定する |
 | バイナリ rcg v1〜v3 | rcss/rcg/parser_v1〜v3 | 将来 | 対象外 | |
 | 読み込みの進捗表示 | rcg_handler.cpp:59-123 | 1 | 済 | ステータスバーに展開と解析の進捗を出す |
@@ -112,7 +113,7 @@ rcssmonitor (Qt 版) の機能と、rcssmonitor-web での扱いをまとめた�
 | メニューバー、ツールバー、ステータスバーの表示切替 | main_window.cpp:529-552 | 5 | 済 | View メニュー、Ctrl+M (メニューバー)。設定として保存する。ツールバーには、ログプレイヤーのボタンに加えて接続、切断、キックオフのボタンもある |
 | 全画面 (F11、Alt+Enter) | main_window.cpp:561-574 | 5 | 済 | Fullscreen API を使う。ブラウザの決まりで、Escape でも戻る |
 | 設定の保存 (`~/.rcssmonitor.conf`) | options.cpp:333-855 | 5 | 済 | localStorage に保存する。項目名は rcssmonitor と同じ。保存できない環境では既定値で動く。ウインドウの位置と大きさは対象外 |
-| コマンドラインオプション | options.cpp:862-1158 | 4〜5 | 済 | URL パラメータで代替する。名前は rcssmonitor と同じで、`-` 区切りでも書ける (`?show-view-area=on`)。表示の項目、色、フォント、`timer_interval`、`auto_loop_mode`、バーの表示、接続 (`connect`、`server_host`、`server_port`、`server_ws_path`、`auto_reconnect_mode`、`auto_reconnect_wait`。`host`、`port`、`path` とも書ける)。URL で指定した値は保存しない (その後に変えた項目は保存する)。対象外: `--server-transport` と `--client-version` (WebSocket と JSON のみ)、`--geometry`、`--maximize`、`--full-screen` (ブラウザのウインドウは操作できない。全画面はユーザの操作が必要)、`--auto-quit-*`、`--anti-aliasing`、`--show-draw-info`、ログファイルの指定 (将来の `?log=`) |
+| コマンドラインオプション | options.cpp:862-1158 | 4〜5 | 済 | URL パラメータで代替する。名前は rcssmonitor と同じで、`-` 区切りでも書ける (`?show-view-area=on`)。表示の項目、色、フォント、`timer_interval`、`auto_loop_mode`、バーの表示、接続 (`connect`、`server_host`、`server_port`、`server_ws_path`、`auto_reconnect_mode`、`auto_reconnect_wait`。`host`、`port`、`path` とも書ける)。URL で指定した値は保存しない (その後に変えた項目は保存する)。対象外: `--server-transport` と `--client-version` (WebSocket と JSON のみ)、`--geometry`、`--maximize`、`--full-screen` (ブラウザのウインドウは操作できない。全画面はユーザの操作が必要)、`--auto-quit-*`、`--anti-aliasing`、`--show-draw-info`。ログファイルの指定は、ファイルの代わりに URL を `log` で渡す (`connect` より優先する。rcssmonitor と同じ) |
 | Window Style、About Qt | main_window.cpp:577-590, 767-783 | — | 対象外 | Qt 固有 |
 | 終了 (Ctrl+Q) | main_window.cpp:275 | — | 対象外 | |
 
