@@ -4,6 +4,7 @@
 // and Kick Off from the Monitor and Referee menus.
 import type { Frame } from '../core/frame';
 import type { LiveState } from '../io/live/client';
+import { CAMERA_LABELS, CAMERA_MODES, type CameraMode } from '../view/render3d/cameras';
 import { ICONS, type IconName } from './icons';
 import { CTRL_LABEL } from './shortcuts';
 
@@ -21,6 +22,10 @@ export interface ToolbarActions {
   previousScore(): void;
   nextScore(): void;
   toggleLoop(): void;
+  toggle3d(): void;
+  setCamera(mode: CameraMode): void;
+  /** Opens the list of the 3D viewpoints below `anchor`. */
+  showViewpoints(anchor: HTMLElement): void;
   seek(index: number): void;
   /** Returns false if the log has no such cycle. */
   goToCycle(cycle: number): boolean;
@@ -35,6 +40,8 @@ export interface ToolbarState {
   readonly loop: boolean;
   readonly live: boolean;
   readonly connection: LiveState;
+  readonly view3d: boolean;
+  readonly camera: CameraMode;
 }
 
 const CTRL = CTRL_LABEL;
@@ -51,6 +58,7 @@ export class Toolbar {
   private readonly frameLabel: HTMLSpanElement;
   private readonly cycleInput: HTMLInputElement;
   private readonly speedLabel: HTMLSpanElement;
+  private readonly cameraSelect: HTMLSelectElement;
 
   constructor(private readonly actions: ToolbarActions) {
     const el = (tag: string, cls = '') => {
@@ -97,7 +105,28 @@ export class Toolbar {
       ),
       this.button('next-score', 'nextScore', 'Next goal (G)', () => actions.nextScore()),
       this.button('loop', 'loop', 'Loop playback', () => actions.toggleLoop()),
+      this.button('view-3d', 'view3d', '3D view (D)', () => actions.toggle3d()),
     );
+    this.cameraSelect = document.createElement('select');
+    this.cameraSelect.id = 'camera-select';
+    this.cameraSelect.className = 'camera-select';
+    this.cameraSelect.title = '3D camera (E: next)';
+    this.cameraSelect.setAttribute('aria-label', '3D camera');
+    for (const mode of CAMERA_MODES) {
+      this.cameraSelect.append(new Option(CAMERA_LABELS[mode], mode));
+    }
+    this.cameraSelect.addEventListener('change', () => {
+      actions.setCamera(this.cameraSelect.value as CameraMode);
+      this.cameraSelect.blur(); // the keys go back to the player
+    });
+    const viewpoints = this.button(
+      'viewpoints',
+      'viewpoints',
+      `Viewpoints of the whole pitch (I: from the side, ${CTRL_LABEL}I: the next)`,
+      () => actions.showViewpoints(viewpoints),
+    );
+    viewpoints.setAttribute('aria-haspopup', 'menu');
+    g.append(this.cameraSelect, viewpoints);
 
     this.slider = document.createElement('input');
     Object.assign(this.slider, {
@@ -144,6 +173,7 @@ export class Toolbar {
     for (const [name, b] of this.buttons) {
       switch (name) {
         case 'open':
+        case 'view-3d':
           break;
         case 'connect':
           b.disabled = s.connection !== 'idle';
@@ -171,6 +201,13 @@ export class Toolbar {
     }
     this.buttons.get('loop')?.setAttribute('aria-pressed', String(s.loop));
     this.buttons.get('live')?.setAttribute('aria-pressed', String(s.live));
+    this.buttons.get('view-3d')?.setAttribute('aria-pressed', String(s.view3d));
+    this.cameraSelect.hidden = !s.view3d;
+    const viewpoints = this.buttons.get('viewpoints');
+    if (viewpoints) {
+      viewpoints.hidden = !s.view3d;
+    }
+    this.cameraSelect.value = s.camera;
 
     this.frameLabel.textContent =
       has && s.frame ? `${cycleLabel(s.frame)} (${s.index + 1} / ${s.frameCount})` : '';

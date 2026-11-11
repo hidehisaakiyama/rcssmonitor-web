@@ -11,8 +11,25 @@ import {
   saveConnection,
   type ConnectionSettings,
 } from '../options/connection';
-import { DEFAULT_APP_SETTINGS, SettingsStore, type AppSettings } from '../options/settings';
+import {
+  DEFAULT_APP_SETTINGS,
+  closeupOptions,
+  playerCameraOptions,
+  SettingsStore,
+  type AppSettings,
+} from '../options/settings';
 import { Playback } from '../playback/playback';
+import {
+  CAMERA_LABELS,
+  CAMERA_MODES,
+  nextCameraMode,
+  nextViewpoint,
+  VIEWPOINT_LABELS,
+  VIEWPOINTS,
+  type CameraMode,
+  type Viewpoint,
+} from '../view/render3d/cameras';
+import type { Render3D } from '../view/render3d/render3d';
 import { ViewState } from '../view/view-state';
 import { ContextMenu, type MenuItem } from './context-menu';
 import { ConfigDialog } from './dialogs/config-dialog';
@@ -60,6 +77,11 @@ export class App {
   private playerTypeCount = 0;
   private wheelDelta = 0;
   private saveTimer: ReturnType<typeof setTimeout> | undefined;
+  /** The 3D renderer, loaded the first time it is shown. */
+  private render3d: Promise<Render3D> | null = null;
+  /** When the newest frame arrived (performance.now()), for the live 3D view. */
+  private lastFrameAt = 0;
+  private lastFrameCount = 0;
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -92,6 +114,12 @@ export class App {
         this.settings.autoLoop = p.loop;
         this.settingsChanged();
         this.updateToolbar();
+      },
+      toggle3d: () => void this.toggle3d(),
+      setCamera: (mode) => this.setCamera(mode),
+      showViewpoints: (anchor) => {
+        const r = anchor.getBoundingClientRect();
+        this.menu.show(this.viewpointItems('toolbar'), r.left, r.bottom);
       },
       seek: (i) => p.goToIndex(i),
       goToCycle: (c) => p.goToCycle(c),
@@ -134,6 +162,10 @@ export class App {
         this.applyCanvasSize();
         this.settingsChanged();
       },
+      applyView3d: () => {
+        this.applyView3d();
+        this.settingsChanged();
+      },
     });
     this.playerTypes = new PlayerTypeDialog(root, () => this.store);
     this.shortcuts = createShortcutDialog(root);
@@ -155,13 +187,15 @@ export class App {
       this.updateToolbar();
     });
     this.field.onTick = (now) => this.tick(now);
+    this.field.position = () => this.scenePosition();
+    this.field.animate = () => this.playback.playing || this.playback.live;
     this.field.onPointerField = (pos) => {
       this.status.setMousePos(pos ? `(${pos.x.toFixed(2)}, ${pos.y.toFixed(2)})` : '');
     };
     this.field.element.addEventListener('contextmenu', (e) => {
       e.preventDefault();
-      const point = this.field.fieldAt(e.clientX, e.clientY);
-      this.menu.show(this.referee.menuItems(point), e.clientX, e.clientY);
+      const target = this.field.targetAt(e.clientX, e.clientY);
+      this.menu.show(this.referee.menuItems(target.point, target.player), e.clientX, e.clientY);
     });
 
     window.addEventListener('keydown', (e) => this.keydown(e));
@@ -206,6 +240,95 @@ export class App {
     this.playback.defaultInterval = s.timerInterval;
     this.playback.loop = s.autoLoop;
     this.applyCanvasSize();
+    if (s.view3d !== this.is3d) {
+      void this.set3d(s.view3d);
+    }
+    this.applyView3d();
+    this.updateToolbar();
+  }
+
+  /** Gives the 3D view the settings of the preference dialog's 3D tab. */
+  private applyView3d(): void {
+    void this.render3d?.then((r) => this.configure3d(r));
+  }
+
+  /** The close-up and player cameras, the compass and the minimap, the boards and the banners. */
+  private configure3d(r: Render3D): void {
+    const s = this.settings;
+    r.setCloseup(closeupOptions(s));
+    r.setPlayerCamera(playerCameraOptions(s));
+    r.setGuides({ compass: s.compass3d, minimap: s.minimap3d });
+    r.setStadium({ boards: s.boards3d, banners: s.banners3d });
+    r.setPlayerModel(s.playerModel3d);
+    r.setShadows(s.shadows3d);
+    r.setScenery({
+      stripes: s.grassStripes3d,
+      sky: s.sky3d,
+      stands: s.stands3d,
+      ballPattern: s.ballPattern3d,
+    });
+    r.setBallAids({
+      ring: s.ballRing3d,
+      ringRadius: s.ballRingRadius3d,
+      trail: s.ballTrail3d,
+      trailCycles: s.ballTrailCycles3d,
+    });
+  }
+
+  // ---- 2D / 3D
+
+  get is3d(): boolean {
+    return this.field.renderer.kind === '3d';
+  }
+
+  /** Switches between the 2D and 3D views (D). */
+  async toggle3d(): Promise<void> {
+    await this.set3d(!this.is3d);
+    this.settings.view3d = this.is3d;
+    this.settingsChanged();
+  }
+
+  /**
+   * Shows the 3D view or the 2D view. The 3D renderer and three.js are
+   * loaded the first time; without WebGL the view stays 2D.
+   */
+  async set3d(on: boolean): Promise<void> {
+    if (!on) {
+      this.field.setRenderer(this.field.render2d);
+      this.updateToolbar();
+      return;
+    }
+    this.render3d ??= import('../view/render3d/render3d').then((m) => {
+      const r = new m.Render3D();
+      r.setCameraMode(this.settings.camera3d);
+      this.configure3d(r);
+      // A drag makes the broadcast or goal camera free.
+      r.onCameraModeChange = (mode) => {
+        this.settings.camera3d = mode;
+        this.settingsChanged();
+        this.updateToolbar();
+      };
+      // The wheel over a close-up camera: kept as the setting of the 3D tab.
+      r.onCloseupDistanceChange = (distance) => {
+        this.settings.closeupDistance3d = distance;
+        this.settingsChanged();
+        if (this.config.panel.isOpen) {
+          this.config.refresh();
+        }
+        this.status.showMessage(`Close-up distance: ${distance.toFixed(1)} m`, 1500);
+      };
+      return r;
+    });
+    try {
+      this.field.setRenderer(await this.render3d);
+    } catch (e) {
+      this.render3d = null;
+      this.settings.view3d = false;
+      this.status.showMessage(
+        `The 3D view is not available: ${e instanceof Error ? e.message : String(e)}`,
+        5000,
+      );
+    }
     this.updateToolbar();
   }
 
@@ -250,6 +373,95 @@ export class App {
     clearTimeout(this.saveTimer);
     this.saveTimer = undefined;
     this.settingsStore.save();
+  }
+
+  /** Chooses the 3D camera (View > 3D Camera, the tool bar, E). */
+  setCamera(mode: CameraMode): void {
+    this.settings.camera3d = mode;
+    this.settingsChanged();
+    void this.render3d?.then((r) => r.setCameraMode(mode));
+    if (mode === 'player' && !this.view.selected) {
+      this.status.showMessage(
+        'Select a player (1-9, 0, - for the left team, with Ctrl for the right) to see with its eyes.',
+        5000,
+      );
+    } else if (mode === 'closeup-player' && !this.view.selected) {
+      this.status.showMessage(
+        'Select a player (1-9, 0, - for the left team, with Ctrl for the right) to follow; ' +
+          'until then, the ball.',
+        5000,
+      );
+    }
+    this.updateToolbar();
+  }
+
+  /** The last viewpoint chosen, for Ctrl+I. */
+  private viewpointShown: Viewpoint | null = null;
+
+  /**
+   * Puts the free camera at a viewpoint of the whole pitch (View > 3D
+   * Camera, the tool bar, I, Ctrl+I): the camera mode becomes free.
+   */
+  viewFrom(viewpoint: Viewpoint): void {
+    if (!this.is3d) {
+      this.status.showMessage('The viewpoints are for the 3D view (D).', 3000);
+      return;
+    }
+    this.viewpointShown = viewpoint;
+    this.settings.camera3d = 'free';
+    this.settingsChanged();
+    void this.render3d?.then((r) => r.viewFrom(viewpoint));
+    this.status.showMessage(`Viewpoint: ${VIEWPOINT_LABELS[viewpoint]}`, 2000);
+    this.updateToolbar();
+  }
+
+  /** I (the whole pitch from the side) and Ctrl+I (the next viewpoint) in 3D; 2D fits with I. */
+  private keyViewpoint(next: boolean): boolean {
+    if (!this.is3d && !next) {
+      return false; // I fits the field (handleViewKey)
+    }
+    // Ctrl+I in 2D only says it is for 3D, rather than leave it to the browser (Firefox's page info).
+    this.viewFrom(next ? nextViewpoint(this.viewpointShown) : 'side');
+    return true;
+  }
+
+  /** The viewpoints as menu items. */
+  private viewpointItems(prefix: string): MenuItem[] {
+    return VIEWPOINTS.map((vp) => ({
+      id: `${prefix}-viewpoint-${vp}`,
+      label: VIEWPOINT_LABELS[vp],
+      ...(vp === 'side' ? { shortcut: 'I' } : {}),
+      disabled: !this.is3d,
+      action: () => this.viewFrom(vp),
+    }));
+  }
+
+  private nextCamera(): void {
+    if (this.is3d) {
+      this.setCamera(nextCameraMode(this.settings.camera3d));
+      this.status.showMessage(`Camera: ${CAMERA_LABELS[this.settings.camera3d]}`, 2000);
+    } else {
+      this.status.showMessage('The cameras are for the 3D view (D).', 3000);
+    }
+  }
+
+  /**
+   * The frame the 3D view shows and the fraction of the way to the next one.
+   * Live, it shows the frame before the newest, moving toward the newest
+   * over one simulation step: one cycle late, but smooth (§4.3).
+   */
+  private scenePosition(): { index: number; alpha: number } {
+    const p = this.playback;
+    const store = p.store;
+    if (!store) {
+      return { index: 0, alpha: 0 };
+    }
+    if (p.live && store.frameCount >= 2) {
+      const step = store.serverParam.simulator_step || 100;
+      const alpha = Math.min(1, (performance.now() - this.lastFrameAt) / step);
+      return { index: store.frameCount - 2, alpha };
+    }
+    return p.position();
   }
 
   // ---- menus (MainWindow::createMenus)
@@ -328,6 +540,32 @@ export class App {
         shortcut: `${CTRL_LABEL}H`,
         checked: this.playerTypes.panel.isOpen,
         action: () => this.playerTypes.panel.toggle(),
+      },
+      {
+        id: 'view-3d',
+        label: '3D View',
+        shortcut: 'D',
+        checked: this.is3d,
+        action: () => void this.toggle3d(),
+      },
+      {
+        kind: 'submenu',
+        id: 'view-camera',
+        label: '3D Camera',
+        disabled: !this.is3d,
+        title: this.is3d
+          ? `E: the next camera; I: the whole pitch; ${CTRL_LABEL}I: the next viewpoint`
+          : 'For the 3D view (D)',
+        items: [
+          ...CAMERA_MODES.map((mode) => ({
+            id: `view-camera-${mode}`,
+            label: CAMERA_LABELS[mode],
+            checked: this.settings.camera3d === mode,
+            action: () => this.setCamera(mode),
+          })),
+          { kind: 'separator' as const },
+          ...this.viewpointItems('view'),
+        ],
       },
       { kind: 'separator' },
       {
@@ -475,6 +713,10 @@ export class App {
 
   private tick(now: number): void {
     const store = this.playback.store;
+    if (store && store.frameCount !== this.lastFrameCount) {
+      this.lastFrameCount = store.frameCount;
+      this.lastFrameAt = now;
+    }
     if (store && store.revision !== this.storeRevision) {
       this.storeRevision = store.revision;
       this.playback.framesAdded();
@@ -495,6 +737,8 @@ export class App {
       loop: p.loop,
       live: p.live,
       connection: this.live.state,
+      view3d: this.is3d,
+      camera: this.settings.camera3d,
     });
   }
 
@@ -513,6 +757,9 @@ export class App {
     }
     const windowKeys = {
       open: () => this.fileInput.click(),
+      toggle3d: () => void this.toggle3d(),
+      nextCamera: () => this.nextCamera(),
+      viewpoint: (next: boolean) => this.keyViewpoint(next),
       toggleMenuBar: () => this.toggleBar('showMenuBar'),
       playerTypes: () => this.playerTypes.panel.toggle(),
       preference: () => this.config.panel.toggle(),
@@ -541,7 +788,8 @@ export class App {
 
   /** The wheel steps frames: down is forward (MainWindow::wheelEvent). */
   private wheel(e: WheelEvent): void {
-    if (!this.store) {
+    // In 3D, the wheel zooms the camera.
+    if (!this.store || this.is3d) {
       return;
     }
     e.preventDefault();

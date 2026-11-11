@@ -18,6 +18,14 @@ export interface BallState {
   readonly y: number;
   readonly vx: number;
   readonly vy: number;
+  /**
+   * Height in meters, up positive, and its velocity per cycle. Today's
+   * servers and logs have neither (the ball is on the ground); they are for
+   * the 2.5D simulator planned for rcssserver. The JSON keys "z" / "vz" are
+   * provisional.
+   */
+  readonly z?: number;
+  readonly vz?: number;
 }
 
 /** Command counters. Logs have them; the live protocol does not. */

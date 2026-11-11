@@ -31,6 +31,7 @@ export const ICONS = {
       'fill="none" stroke="currentColor" stroke-width="1"/>',
   ),
   live: svg(text('LIVE', 6)),
+  view3d: svg(text('3D', 7.5)),
   play: svg('<path d="M4.5 2.5v11l9-5.5z" fill="currentColor"/>'),
   stop: svg('<rect x="3.5" y="3.5" width="9" height="9" fill="currentColor"/>'),
   stepBackward: svg(
@@ -50,6 +51,12 @@ export const ICONS = {
   ),
   nextScore: svg(
     '<path d="M1 3.5v9l5-4.5z" fill="currentColor"/><text x="11.5" y="12" text-anchor="middle" font-size="9" font-weight="bold" font-family="sans-serif" fill="currentColor">G</text>',
+  ),
+  // A viewfinder around the pitch.
+  viewpoints: svg(
+    '<path d="M1.5 5V1.5H5M11 1.5h3.5V5M14.5 11v3.5H11M5 14.5H1.5V11" fill="none" stroke="currentColor" stroke-width="1.3"/>' +
+      '<rect x="4" y="5.5" width="8" height="5" fill="none" stroke="currentColor" stroke-width="1.1"/>' +
+      '<path d="M8 5.5v5" stroke="currentColor" stroke-width="0.9"/>',
   ),
   loop: svg(
     '<path d="M3 7.5a5 5 0 0 1 9-2.5M13 8.5a5 5 0 0 1-9 2.5" fill="none" stroke="currentColor" stroke-width="1.4"/>' +

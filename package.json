@@ -1,6 +1,6 @@
 {
   "name": "rcssmonitor-web",
-  "version": "20.0.0-beta.1",
+  "version": "20.0.0-beta.2",
   "private": true,
   "description": "Browser-based monitor for the RoboCup Soccer Simulator 2D server",
   "license": "GPL-3.0-or-later",
@@ -27,6 +27,7 @@
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.64.1",
     "@types/node": "^24.19.2",
+    "@types/three": "^0.186.0",
     "@types/ws": "^8.18.2",
     "eslint": "^10.13.0",
     "eslint-config-prettier": "^10.1.8",
@@ -38,5 +39,8 @@
     "vite-plugin-singlefile": "^2.3.4",
     "vitest": "^5.0.5",
     "ws": "^8.22.0"
+  },
+  "dependencies": {
+    "three": "^0.186.1"
   }
 }

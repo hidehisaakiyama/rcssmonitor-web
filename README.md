@@ -8,11 +8,13 @@ It follows the features and the look of [rcssmonitor](https://github.com/rcsocce
 - Replay game logs (`.rcg` / `.rcg.gz`) in JSON and text (v4–v6) formats, with rcssmonitor's player controls.
 - The 2D field drawn like rcssmonitor, its preference dialog (Show, Canvas, Color, Font), the player type list and its keyboard shortcuts.
 
-A 3D view is planned. It is meant for servers on the same machine or the local network; connections over the Internet and TLS (`wss://`) are not supported.
+It adds a 3D view of the game (not in rcssmonitor): cameras from the broadcast angle to the selected player's eyes, the overlays of the 2D view, human figures, and more (see below).
+
+It is meant for servers on the same machine or the local network; connections over the Internet and TLS (`wss://`) are not supported.
 
 ## Getting it
 
-> **Beta.** The current release is the pre-release 20.0.0-beta.1. The major version follows rcssserver: version 20 is the asio-based rcssserver, the first with WebSocket connections. The stable 20.0.0 will come when the repository moves to the [rcsoccersim](https://github.com/rcsoccersim) organization, and the GitHub Pages address will change then.
+> **Beta.** The current release is the pre-release 20.0.0-beta.2. The major version follows rcssserver: version 20 is the asio-based rcssserver, the first with WebSocket connections. The stable 20.0.0 will come when the repository moves to the [rcsoccersim](https://github.com/rcsoccersim) organization, and the GitHub Pages address will change then.
 
 - **Single HTML file**: download `rcssmonitor-web-vX.Y.Z.html` from the [releases](https://github.com/hidehisaakiyama/rcssmonitor-web/releases) and open it from disk (`file://`). It replays logs and connects to servers anywhere on your LAN.
 - **GitHub Pages**: https://hidehisaakiyama.github.io/rcssmonitor-web/ for replaying logs and for servers on `localhost`. A page served over HTTPS cannot open plain `ws://` connections to other machines.
@@ -36,8 +38,9 @@ Changing the play mode from the monitor needs the coach mode (`server::coach=tru
 
 - **Logs**: File > Open Game Log (Ctrl+O), the open button, or drop a file on the window.
 - **Live**: Monitor > Connect to ... (host, port and path; the default is `localhost:6080/monitor`), or Monitor > Connect (Ctrl+C) to connect again to the last server. While connected, the view follows the newest frame (live mode, Ctrl+L); step back to look at earlier frames.
-- **Referee**: the Referee menu, and the pop-up menu of the field (right click) for commands at a point.
+- **Referee**: the Referee menu, and the pop-up menu of the field (right click) for commands at a point. In 3D, a right click on a player aims at that player (for the cards) and its feet; on the ground, at the point on the pitch or its margin.
 - **View**: View > Preference (Ctrl+V), View > Player Type List (Ctrl+H), Help > Shortcut Keys.
+- **3D view**: View > 3D View (D), with eight cameras under View > 3D Camera (E for the next one): free (drag to turn, Shift+drag to move, wheel to zoom), broadcast, two close-ups that follow the ball or the selected player from nearer (12 m by default; the wheel or the 3D tab of View > Preference changes the distance, and the tab the elevation), top, behind either goal, and the selected player's. I puts the free camera where it sees the whole pitch from the side, Ctrl+I at the next of nine viewpoints of the whole pitch (from the far side, behind either goal, high above, the four corners; also in View > 3D Camera and the tool bar). It needs WebGL. As in 2D, lines in the circle on the ground show each player's body and face directions, and the overlays of the Show tab are drawn on the ground (the focus point, the catch, tackle and kick areas, pointto, the offside lines, the ball's path, the player types), and the stamina and its capacity are bars above the heads. The player camera looks over the player's shoulder, turns smoothly with its face and draws only what rcssserver tells the player; the Player Camera tab of View > Preference sets other styles (e.g. at the eyes, or drawing everything). The goal nets, the boards around the pitch and the banners floating behind the goals are in the team colors (the boards and the banners can be hidden), and a compass and a minimap can be shown (the 3D tab of View > Preference). The players and the goals cast shadows from the sun (the 3D tab: Shadows; not from the top camera). The grass is mowed in stripes, a sky and simple stands along the touch lines surround the pitch, and the ball has the pentagons of a football and rolls (each can be hidden in the 3D tab). To find a small ball, a ring on the ground (0.7 m by default) and a trail like a contrail over its last cycles go with it (the 3D tab: Ball). The players can be drawn as human figures (the CC0 Mannequin by Quaternius) that walk, run, kick, tackle, catch and fall when fouled by the log (also when stepping back) (the 3D tab: Players).
 
 URL parameters stand in for rcssmonitor's command line options, with the same names (also written with `-`). For example:
 

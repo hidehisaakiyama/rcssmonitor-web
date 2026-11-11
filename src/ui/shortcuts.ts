@@ -20,7 +20,7 @@ const PLAIN: Readonly<Record<string, Action>> = {
   i: (v) => v.fitToScreen(),
   n: toggle('showPlayerNumber'),
   h: toggle('showPlayerType'),
-  s: toggle('showStamina'),
+  s: (v) => v.cycleStamina(),
   v: toggle('showViewArea'),
   c: toggle('showCatchArea'),
   t: toggle('showTackleArea'),
@@ -160,6 +160,13 @@ export function handleMonitorKey(actions: MonitorKeyActions, e: KeyboardEvent): 
 
 export interface WindowKeyActions {
   open(): void;
+  toggle3d(): void;
+  nextCamera(): void;
+  /**
+   * I (the whole pitch) or Ctrl+I (the next viewpoint) of the 3D view;
+   * false for I in 2D, where it fits the field instead (handleViewKey).
+   */
+  viewpoint(next: boolean): boolean;
   toggleMenuBar(): void;
   playerTypes(): void;
   preference(): void;
@@ -173,6 +180,10 @@ export interface WindowKeyActions {
  */
 export function handleWindowKey(actions: WindowKeyActions, e: KeyboardEvent): boolean {
   const ctrl = e.ctrlKey || e.metaKey;
+  // I, Ctrl+I: not in rcssmonitor (3D). Ctrl+Shift+I stays the browser's (the developer tools).
+  if (e.key.toLowerCase() === 'i' && !e.altKey && !e.shiftKey) {
+    return actions.viewpoint(ctrl);
+  }
   if (e.shiftKey) {
     return false;
   }
@@ -182,6 +193,15 @@ export function handleWindowKey(actions: WindowKeyActions, e: KeyboardEvent): bo
   }
   if (e.key === 'Enter' && e.altKey && !ctrl) {
     actions.fullScreen();
+    return true;
+  }
+  // D: not in rcssmonitor.
+  if (e.key.toLowerCase() === 'd' && !ctrl && !e.altKey) {
+    actions.toggle3d();
+    return true;
+  }
+  if (e.key.toLowerCase() === 'e' && !ctrl && !e.altKey) {
+    actions.nextCamera();
     return true;
   }
   if (!ctrl || e.altKey) {
@@ -274,9 +294,20 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { group: 'Window', keys: [ctrl('h')], action: 'Player type list' },
   { group: 'Window', keys: [ctrl('v')], action: 'Preference (view configuration)' },
   { group: 'Window', keys: [key('F11'), { key: 'Enter', alt: true }], action: 'Full screen' },
+  { group: 'Window', keys: [key('d')], action: 'Switch between the 2D and 3D views' },
+  { group: 'Window', keys: [key('e')], action: 'The next camera of the 3D view' },
   { group: 'View', keys: [key('z')], action: 'Zoom in' },
   { group: 'View', keys: [key('x'), ctrl('z')], action: 'Zoom out' },
-  { group: 'View', keys: [key('i')], action: 'Fit the field to the window' },
+  {
+    group: 'View',
+    keys: [key('i')],
+    action: 'Fit the field to the window; in 3D, the whole pitch from the side (free camera)',
+  },
+  {
+    group: 'View',
+    keys: [ctrl('i')],
+    action: 'In 3D, the next viewpoint of the whole pitch (free camera)',
+  },
   { group: 'View', keys: [key('b')], action: 'Follow the ball' },
   { group: 'View', keys: [key('p')], action: 'Follow the selected player' },
   { group: 'View', keys: [ctrl('s')], action: 'Show / hide the score board' },
@@ -286,7 +317,11 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { group: 'View', keys: [key('o')], action: 'Show / hide the offside lines' },
   { group: 'Player info', keys: [key('n')], action: 'Show / hide the uniform numbers' },
   { group: 'Player info', keys: [key('h')], action: 'Show / hide the player types' },
-  { group: 'Player info', keys: [key('s')], action: 'Show / hide the stamina' },
+  {
+    group: 'Player info',
+    keys: [key('s')],
+    action: 'Show the stamina, its capacity, both or neither, in turn',
+  },
   { group: 'Player info', keys: [key('v')], action: 'Show / hide the view areas' },
   { group: 'Player info', keys: [key('c')], action: 'Show / hide the catch areas' },
   { group: 'Player info', keys: [key('t')], action: 'Show / hide the tackle areas' },

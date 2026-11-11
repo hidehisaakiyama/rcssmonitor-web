@@ -9,13 +9,29 @@ import type { Viewport } from './viewport';
 const HALF_LENGTH = PITCH.length * 0.5;
 const HALF_WIDTH = PITCH.width * 0.5;
 
-export function drawField(p: QtPainter, vp: Viewport, view: ViewState, sp: ServerParam): void {
+export interface FieldOptions {
+  /** The goals as boxes behind the goal lines (default). The 3D view builds its own. */
+  readonly goals?: boolean;
+  /** Drawn over the field color, under the lines (the 3D view's mowed stripes). */
+  readonly grass?: (p: QtPainter, vp: Viewport) => void;
+}
+
+export function drawField(
+  p: QtPainter,
+  vp: Viewport,
+  view: ViewState,
+  sp: ServerParam,
+  options: FieldOptions = {},
+): void {
   p.antialias = false;
   p.fillRect(0, 0, vp.width, vp.height, view.colors.field);
+  options.grass?.(p, vp);
   drawLines(p, vp, view, sp);
   drawPenaltyAreaLines(p, vp, view);
   drawGoalAreaLines(p, vp, view);
-  drawGoals(p, vp);
+  if (options.goals ?? true) {
+    drawGoals(p, vp);
+  }
   if (view.options.showFlag) {
     drawFlags(p, vp, view);
   }
