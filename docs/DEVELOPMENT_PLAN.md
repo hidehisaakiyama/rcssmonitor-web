@@ -450,6 +450,16 @@ rcssmonitor にない機能。Web 上のログを、手元に保存せずに開�
 
 **完了条件**: 単体テスト (URL の解釈と検証、表示する名前、mixed content の判定、取得と進捗、HTTP の失敗、中止) と E2E テスト (Chromium と Firefox) が通る。E2E テストでは、file:// で開いた単一 HTML から、別のポートで動く HTTP サーバのログを、メニューと `?log=` で開ける。CORS を許さないサーバではダウンロードの案内が出る。`?log=` と `connect=1` を両方指定するとログを開く。GitHub のページの URL と raw のリンクで、raw.githubusercontent.com から開ける。LFS のポインタなら media.githubusercontent.com から開ける (GitHub への要求は E2E テストの中で横取りして答える)。
 
+### プレリリース 20.0.0-beta.3 (URL を指定してログを開く機能の後)
+
+URL を指定してログを開く機能を、正式版の前にベータとして試してもらう (2026-11-11 にユーザが決めた)。
+
+**作業**
+- `feature/open-url` を develop に取り込み (PR #4)、develop で版を `20.0.0-beta.3` に上げ、リリースノート (`docs/release-notes/v20.0.0-beta.3.md`) を書き、README を直す。
+- develop を main に取り込み、main でタグ `v20.0.0-beta.3` を付けて push する (`docs/release.md`)。
+
+**完了条件**: タグ `v20.0.0-beta.3` の Pre-release に単一 HTML と dist の zip が添付され、Pages が公開される。添付の単一 HTML と Pages で、URL からログを開けることを確かめる。Pages 版では、URL の機能で残した確認 (https のページから GitHub のログを開けること、http:// の URL を入力したときにダイアログが警告すること) も行う。
+
 ### 将来の拡張 (rcssmonitor にない機能。初回の正式リリース 20.0.0 の対象外)
 
 - ドラッグで選手を移動する (`(dispplayer SIDE UNUM X Y ANG)`。ANG は 16 倍せず整数の度で送る)。
@@ -926,3 +936,4 @@ asio 版サーバで見つかった問題 (サーバ側で対応を検討する)
 - 非公開リポジトリのファイルは、raw.githubusercontent.com が 404 を返すので開けない (ブラウザのログイン情報は送らない)。
 - 単体テスト 280 件と E2E テスト 138 件 (Chromium と Firefox) が通った。
 - PR #4 (feature/open-url → develop) の CI で、単体テスト「reads a log the server compresses on the way」が 5 秒の制限を超えて落ちた (同じコミットの push の CI では通っていた)。止まっていたのではなく遅かった。取得したバイト列を `toEqual` で比べていて、展開後の 2.3 MB を 1 要素ずつ比べるのに手元でも約 3 秒かかり、テストファイルを並べて流す CI の負荷で制限を超えた。`Buffer.equals` で一度に比べる形に改め、3.2 秒から 0.04 秒になった (ほかの取得のテストも 0.3 秒から数ミリ秒に)。
+- PR #4 の CI が通り、ユーザが develop に取り込んだ (取り込みのコミット `bc21a11`)。プレリリース 20.0.0-beta.3 に入れる。

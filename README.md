@@ -14,7 +14,7 @@ It is meant for servers on the same machine or the local network; connections ov
 
 ## Getting it
 
-> **Beta.** The current release is the pre-release 20.0.0-beta.2. The major version follows rcssserver: version 20 is the asio-based rcssserver, the first with WebSocket connections. The stable 20.0.0 will come when the repository moves to the [rcsoccersim](https://github.com/rcsoccersim) organization, and the GitHub Pages address will change then.
+> **Beta.** The current release is the pre-release 20.0.0-beta.3. The major version follows rcssserver: version 20 is the asio-based rcssserver, the first with WebSocket connections. The stable 20.0.0 will come when the repository moves to the [rcsoccersim](https://github.com/rcsoccersim) organization, and the GitHub Pages address will change then.
 
 - **Single HTML file**: download `rcssmonitor-web-vX.Y.Z.html` from the [releases](https://github.com/hidehisaakiyama/rcssmonitor-web/releases) and open it from disk (`file://`). It replays logs and connects to servers anywhere on your LAN.
 - **GitHub Pages**: https://hidehisaakiyama.github.io/rcssmonitor-web/ for replaying logs and for servers on `localhost`. A page served over HTTPS cannot open plain `ws://` connections to other machines.
