@@ -28,7 +28,8 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # Named, not ubuntu-latest, which moves to a new image now and then (as in ci.yml).
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v5
         with:
@@ -59,13 +60,14 @@ jobs:
       - run: npm run build
       - run: npm run build:single
       - run: npx playwright install --with-deps chromium firefox
-      - run: npm run test:e2e
+      # On a virtual display: without one, headless Firefox has no WebGL (the 3D view).
+      - run: xvfb-run -a npm run test:e2e
       - name: Package
         run: |
           mkdir release
           cp dist-single/rcssmonitor-web.html "release/rcssmonitor-web-$TAG.html"
           (cd dist && zip -qr "../release/rcssmonitor-web-$TAG-dist.zip" .)
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release
           path: release/
@@ -75,14 +77,14 @@ jobs:
 
   release:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.tag || github.ref }}
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: release
           path: release
@@ -107,7 +109,7 @@ jobs:
 
   pages:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       pages: write
       id-token: write

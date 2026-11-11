@@ -35,6 +35,8 @@ export default defineConfig(({ mode }) => {
     build: {
       outDir: single ? 'dist-single' : 'dist',
       target: 'es2022',
+      // three.js makes the 3D chunk (and the single file) about 600 kB.
+      chunkSizeWarningLimit: 800,
     },
     plugins: single ? [viteSingleFile()] : [],
   };

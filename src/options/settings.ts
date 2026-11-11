@@ -14,6 +14,30 @@ import {
   type Fonts,
   type Palette,
 } from '../view/palette';
+import { GUIDE_MODES, type GuideMode } from '../view/hud/guides';
+import { BALL_AIDS } from '../view/render3d/ball-aids';
+import {
+  CAMERA_MODES,
+  CLOSEUP_RANGE,
+  DEFAULT_CLOSEUP,
+  type CameraMode,
+  type CloseupOptions,
+} from '../view/render3d/cameras';
+import { PLAYER_MODELS, type PlayerModel } from '../view/render3d/figures/figures';
+import {
+  DEFAULT_PLAYER_CAMERA,
+  PLAYER_CAMERA_DIRECTIONS,
+  PLAYER_CAMERA_FOVS,
+  PLAYER_CAMERA_MOTIONS,
+  PLAYER_CAMERA_POSITIONS,
+  PLAYER_SIGHTS,
+  type PlayerCameraDirection,
+  type PlayerCameraFov,
+  type PlayerCameraMotion,
+  type PlayerCameraOptions,
+  type PlayerCameraPosition,
+  type PlayerSight,
+} from '../view/render3d/player-camera';
 import { DEFAULT_VIEW_OPTIONS, type ViewOptions } from '../view/view-state';
 import { readSetting, writeSetting } from './storage';
 
@@ -29,6 +53,42 @@ export interface AppSettings {
   /** Fixed size of the field in CSS pixels; 0 fits the window. */
   canvasWidth: number;
   canvasHeight: number;
+  /** The 3D view instead of the 2D one (not in rcssmonitor). */
+  view3d: boolean;
+  /** The camera of the 3D view. */
+  camera3d: CameraMode;
+  /** The close-up cameras' distance from what they follow (m) and elevation (degrees). */
+  closeupDistance3d: number;
+  closeupElevation3d: number;
+  /** The styles of the selected player's camera (player-camera.ts). */
+  playerCameraPosition: PlayerCameraPosition;
+  playerCameraDirection: PlayerCameraDirection;
+  playerCameraMotion: PlayerCameraMotion;
+  playerCameraFov: PlayerCameraFov;
+  playerCameraSight: PlayerSight;
+  playerCameraTimeConstant: number;
+  playerCameraMaxTurn: number;
+  playerCameraFixedFov: number;
+  /** The compass and the minimap over the 3D view (hud/guides.ts). */
+  compass3d: GuideMode;
+  minimap3d: GuideMode;
+  /** The boards around the pitch and the banners behind the goals of the 3D view (stadium.ts). */
+  boards3d: boolean;
+  banners3d: boolean;
+  /** The players as cylinders or as human figures (the prototype: render3d/figures/). */
+  playerModel3d: PlayerModel;
+  /** The sun's shadows of the players and the goals in the 3D view. */
+  shadows3d: boolean;
+  /** The scenery of the 3D view (render3d/scenery.ts, ball.ts). */
+  grassStripes3d: boolean;
+  sky3d: boolean;
+  stands3d: boolean;
+  ballPattern3d: boolean;
+  /** The ring around the ball and its trail (render3d/ball-aids.ts). */
+  ballRing3d: boolean;
+  ballRingRadius3d: number;
+  ballTrail3d: boolean;
+  ballTrailCycles3d: number;
 }
 
 export const DEFAULT_APP_SETTINGS: Readonly<AppSettings> = Object.freeze({
@@ -39,7 +99,100 @@ export const DEFAULT_APP_SETTINGS: Readonly<AppSettings> = Object.freeze({
   autoLoop: false,
   canvasWidth: 0,
   canvasHeight: 0,
+  view3d: false,
+  camera3d: 'broadcast',
+  closeupDistance3d: DEFAULT_CLOSEUP.distance,
+  closeupElevation3d: DEFAULT_CLOSEUP.elevation,
+  playerCameraPosition: DEFAULT_PLAYER_CAMERA.position,
+  playerCameraDirection: DEFAULT_PLAYER_CAMERA.direction,
+  playerCameraMotion: DEFAULT_PLAYER_CAMERA.motion,
+  playerCameraFov: DEFAULT_PLAYER_CAMERA.fov,
+  playerCameraSight: DEFAULT_PLAYER_CAMERA.sight,
+  playerCameraTimeConstant: DEFAULT_PLAYER_CAMERA.timeConstant,
+  playerCameraMaxTurn: DEFAULT_PLAYER_CAMERA.maxTurn,
+  playerCameraFixedFov: DEFAULT_PLAYER_CAMERA.fixedFov,
+  compass3d: 'off',
+  minimap3d: 'off',
+  boards3d: true,
+  banners3d: true,
+  playerModel3d: 'simple',
+  shadows3d: true,
+  grassStripes3d: true,
+  sky3d: true,
+  stands3d: true,
+  ballPattern3d: true,
+  ballRing3d: true,
+  ballRingRadius3d: BALL_AIDS.ringRadius,
+  ballTrail3d: true,
+  ballTrailCycles3d: BALL_AIDS.trailCycles,
 });
+
+/** The close-up cameras' settings, for the 3D renderer. */
+export function closeupOptions(app: AppSettings): CloseupOptions {
+  return { distance: app.closeupDistance3d, elevation: app.closeupElevation3d };
+}
+
+/** The player camera's settings, for the 3D renderer. */
+export function playerCameraOptions(app: AppSettings): PlayerCameraOptions {
+  return {
+    position: app.playerCameraPosition,
+    direction: app.playerCameraDirection,
+    motion: app.playerCameraMotion,
+    fov: app.playerCameraFov,
+    sight: app.playerCameraSight,
+    timeConstant: app.playerCameraTimeConstant,
+    maxTurn: app.playerCameraMaxTurn,
+    fixedFov: app.playerCameraFixedFov,
+  };
+}
+
+/** The settings of the preference dialog's Player Camera tab. */
+const PLAYER_CAMERA_KEYS = [
+  'playerCameraPosition',
+  'playerCameraDirection',
+  'playerCameraMotion',
+  'playerCameraFov',
+  'playerCameraSight',
+  'playerCameraTimeConstant',
+  'playerCameraMaxTurn',
+  'playerCameraFixedFov',
+] as const satisfies readonly (keyof AppSettings)[];
+
+/** The settings of its 3D tab. */
+const VIEW_3D_KEYS = [
+  'closeupDistance3d',
+  'closeupElevation3d',
+  'compass3d',
+  'minimap3d',
+  'boards3d',
+  'banners3d',
+  'playerModel3d',
+  'shadows3d',
+  'grassStripes3d',
+  'sky3d',
+  'stands3d',
+  'ballPattern3d',
+  'ballRing3d',
+  'ballRingRadius3d',
+  'ballTrail3d',
+  'ballTrailCycles3d',
+] as const satisfies readonly (keyof AppSettings)[];
+
+function reset(app: AppSettings, keys: readonly (keyof AppSettings)[]): void {
+  for (const key of keys) {
+    Object.assign(app, { [key]: DEFAULT_APP_SETTINGS[key] });
+  }
+}
+
+/** The player camera's styles and sight back to the defaults. */
+export function resetPlayerCamera(app: AppSettings): void {
+  reset(app, PLAYER_CAMERA_KEYS);
+}
+
+/** Everything of the 3D tab back to the defaults: the close-up cameras, the guides, the players, the stadium and the scenery. */
+export function resetView3d(app: AppSettings): void {
+  reset(app, VIEW_3D_KEYS);
+}
 
 /** What the settings apply to. */
 export interface SettingTargets {
@@ -66,6 +219,13 @@ type Entry =
       readonly get: (t: SettingTargets) => number;
       readonly set: (t: SettingTargets, v: number) => void;
     } & NumberRange)
+  | {
+      readonly key: string;
+      readonly kind: 'choice';
+      readonly values: readonly string[];
+      readonly get: (t: SettingTargets) => string;
+      readonly set: (t: SettingTargets, v: string) => void;
+    }
   | { readonly key: string; readonly kind: 'color'; readonly name: keyof Palette }
   | { readonly key: string; readonly kind: 'font'; readonly name: keyof Fonts };
 
@@ -106,6 +266,20 @@ const appNumber = (key: string, name: NumberKey<AppSettings>, range: NumberRange
     t.app[name] = v;
   },
 });
+type ChoiceKey<T> = { [K in keyof T]: T[K] extends string ? K : never }[keyof T];
+const appChoice = <K extends ChoiceKey<AppSettings>>(
+  key: string,
+  name: K,
+  values: readonly AppSettings[K][],
+): Entry => ({
+  key,
+  kind: 'choice',
+  values,
+  get: (t) => t.app[name],
+  set: (t, v) => {
+    Object.assign(t.app, { [name]: v });
+  },
+});
 const color = (key: string, name: keyof Palette): Entry => ({ key, kind: 'color', name });
 const font = (key: string, name: keyof Fonts): Entry => ({ key, kind: 'font', name });
 
@@ -118,6 +292,36 @@ export const SETTINGS: readonly Entry[] = [
   appBool('auto_loop_mode', 'autoLoop'),
   appNumber('canvas_width', 'canvasWidth', { min: 0, max: 3000, integer: true }),
   appNumber('canvas_height', 'canvasHeight', { min: 0, max: 3000, integer: true }),
+  // Not in rcssmonitor.
+  appBool('view_3d', 'view3d'),
+  appChoice('camera_3d', 'camera3d', CAMERA_MODES),
+  appNumber('closeup_distance_3d', 'closeupDistance3d', CLOSEUP_RANGE.distance),
+  appNumber('closeup_elevation_3d', 'closeupElevation3d', CLOSEUP_RANGE.elevation),
+  appChoice('player_camera_position', 'playerCameraPosition', PLAYER_CAMERA_POSITIONS),
+  appChoice('player_camera_direction', 'playerCameraDirection', PLAYER_CAMERA_DIRECTIONS),
+  appChoice('player_camera_motion', 'playerCameraMotion', PLAYER_CAMERA_MOTIONS),
+  appChoice('player_camera_fov', 'playerCameraFov', PLAYER_CAMERA_FOVS),
+  appChoice('player_camera_sight', 'playerCameraSight', PLAYER_SIGHTS),
+  appNumber('player_camera_time_constant', 'playerCameraTimeConstant', { min: 0, max: 5 }),
+  appNumber('player_camera_max_turn', 'playerCameraMaxTurn', { min: 1, max: 3600 }),
+  appNumber('player_camera_fixed_fov', 'playerCameraFixedFov', { min: 20, max: 120 }),
+  appChoice('compass_3d', 'compass3d', GUIDE_MODES),
+  appChoice('minimap_3d', 'minimap3d', GUIDE_MODES),
+  appBool('boards_3d', 'boards3d'),
+  appBool('banners_3d', 'banners3d'),
+  appChoice('player_model_3d', 'playerModel3d', PLAYER_MODELS),
+  appBool('shadows_3d', 'shadows3d'),
+  appBool('grass_stripes_3d', 'grassStripes3d'),
+  appBool('sky_3d', 'sky3d'),
+  appBool('stands_3d', 'stands3d'),
+  appBool('ball_pattern_3d', 'ballPattern3d'),
+  appBool('ball_ring_3d', 'ballRing3d'),
+  appNumber('ball_ring_radius_3d', 'ballRingRadius3d', BALL_AIDS.ringRange),
+  appBool('ball_trail_3d', 'ballTrail3d'),
+  appNumber('ball_trail_cycles_3d', 'ballTrailCycles3d', {
+    ...BALL_AIDS.trailRange,
+    integer: true,
+  }),
 
   viewBool('show_score_board', 'showScoreBoard'),
   viewBool('show_team_graphic', 'showTeamGraphic'),
@@ -207,6 +411,7 @@ export function getSetting(t: SettingTargets, e: Entry): SettingValue {
   switch (e.kind) {
     case 'bool':
     case 'number':
+    case 'choice':
       return e.get(t);
     case 'color':
       return t.colors[e.name];
@@ -263,6 +468,12 @@ export function setSetting(t: SettingTargets, key: string, value: unknown): bool
       }
       e.set(t, value);
       return true;
+    case 'choice':
+      if (typeof value !== 'string' || !e.values.includes(value)) {
+        return false;
+      }
+      e.set(t, value);
+      return true;
     case 'color':
       if (!isColor(value)) {
         return false;
@@ -308,6 +519,8 @@ export function parseSettingText(key: string, text: string): SettingValue | unde
       const n = Number(text.trim());
       return text.trim() !== '' && Number.isFinite(n) ? n : undefined;
     }
+    case 'choice':
+      return e.values.includes(text.trim()) ? text.trim() : undefined;
     case 'color': {
       const c = text.trim().replace(/^#?/, '#');
       return isColor(c) ? c.toLowerCase() : undefined;

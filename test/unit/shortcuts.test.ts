@@ -24,6 +24,10 @@ function handled(k: KeySpec): boolean {
   } as KeyboardEvent;
   const actions = {
     open: noop,
+    toggle3d: noop,
+    nextCamera: noop,
+    // As in 3D: I and Ctrl+I are the viewpoints.
+    viewpoint: () => true,
     toggleMenuBar: noop,
     playerTypes: noop,
     preference: noop,

@@ -78,6 +78,17 @@ describe('live stream of a log', () => {
     });
   }
 
+  it('passes the ball height of the planned 2.5D simulator through', async () => {
+    const recs = await records('json-pk.rcg.gz');
+    const flying = recs.map((r) =>
+      r.type === 'show'
+        ? { ...r, show: { ...r.show, ball: { ...r.show.ball, z: 2.5, vz: 0.1 } } }
+        : r,
+    );
+    const live = receiveAll(flying);
+    expect(live.frame(0)?.ball).toMatchObject({ z: 2.5, vz: 0.1 });
+  });
+
   it('sends the logos and messages before the first show after it', async () => {
     const stream = liveStream(await records('json-sample.rcg.gz'));
     expect(stream.init).toHaveLength(20); // server_param, player_param, 18 types

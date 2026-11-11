@@ -4,7 +4,7 @@ import { disabledPlayer, type Frame, type PlayerState } from '../../src/core/fra
 import { handleViewKey } from '../../src/ui/shortcuts';
 import { scoreBoardText } from '../../src/view/hud/score-board';
 import { darker } from '../../src/view/palette';
-import { offsideLines, qtNumber } from '../../src/view/render2d/player-painter';
+import { offsideLines, qtNumber } from '../../src/view/overlay-math';
 import { layoutViewport } from '../../src/view/render2d/viewport';
 import { ViewState } from '../../src/view/view-state';
 import { loadFixture } from './helpers';
@@ -158,6 +158,18 @@ describe('shortcuts', () => {
     expect(view.options.showViewArea).toBe(true);
     expect(handleViewKey(view, key('s', { ctrlKey: true }))).toBe(true);
     expect(view.options.showScoreBoard).toBe(false);
+    // S turns, as rcssmonitor: the stamina, the capacity, both, neither.
+    const stamina = () => [view.options.showStamina, view.options.showStaminaCapacity];
+    expect(stamina()).toEqual([false, false]);
+    for (const next of [
+      [true, false],
+      [false, true],
+      [true, true],
+      [false, false],
+    ]) {
+      expect(handleViewKey(view, key('s'))).toBe(true);
+      expect(stamina()).toEqual(next);
+    }
     handleViewKey(view, key('0'));
     expect(view.selected).toEqual({ side: Side.Left, unum: 10 });
     handleViewKey(view, key('-'));

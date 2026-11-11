@@ -12,6 +12,7 @@ import { QtPainter } from './qt-painter';
 import { layoutViewport, Viewport } from './viewport';
 
 export class Render2D implements FieldRenderer {
+  readonly kind = '2d';
   readonly canvas: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D;
   private readonly painter: QtPainter;
