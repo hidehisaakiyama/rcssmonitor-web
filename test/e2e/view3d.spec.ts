@@ -718,16 +718,22 @@ const windowOf = (page: Page, x: number, y: number, height = 0) =>
     { x, y, height },
   );
 
-/** Waits until the 3D camera stops (the broadcast camera glides after the ball). */
+/**
+ * Waits until the 3D camera stops (the broadcast camera glides after the
+ * ball). It moves at most 0.1 s of its glide a frame, so where software
+ * draws a few frames a second (CI), that takes several seconds.
+ */
 const cameraStill = (page: Page) =>
   expect
-    .poll(() =>
-      page.evaluate(
-        () =>
-          (
-            window.rcssmonitorWeb as { field: { renderer: { animating?(): boolean } } }
-          ).field.renderer.animating?.() ?? false,
-      ),
+    .poll(
+      () =>
+        page.evaluate(
+          () =>
+            (
+              window.rcssmonitorWeb as { field: { renderer: { animating?(): boolean } } }
+            ).field.renderer.animating?.() ?? false,
+        ),
+      { timeout: 15000 },
     )
     .toBe(false);
 
@@ -807,7 +813,11 @@ test('sends the referee commands aimed in 3D', async ({ page }) => {
   });
   try {
     const port = await server.listen();
-    await openApp(page, `?connect=1&host=127.0.0.1&port=${port}&view_3d=on&camera_3d=broadcast`);
+    // Without the shadows, which make each frame slower in software (CI).
+    await openApp(
+      page,
+      `?connect=1&host=127.0.0.1&port=${port}&view_3d=on&camera_3d=broadcast&shadows_3d=off`,
+    );
     await expect(page.locator('#connection-status')).toContainText('Connected');
     await wait3d(page);
     await page.keyboard.press('ArrowLeft'); // stay on one frame
