@@ -78,6 +78,11 @@ export interface AppSettings {
   playerModel3d: PlayerModel;
   /** The sun's shadows of the players and the goals in the 3D view. */
   shadows3d: boolean;
+  /** The scenery of the 3D view (render3d/scenery.ts, ball.ts). */
+  grassStripes3d: boolean;
+  sky3d: boolean;
+  stands3d: boolean;
+  ballPattern3d: boolean;
 }
 
 export const DEFAULT_APP_SETTINGS: Readonly<AppSettings> = Object.freeze({
@@ -106,6 +111,10 @@ export const DEFAULT_APP_SETTINGS: Readonly<AppSettings> = Object.freeze({
   banners3d: true,
   playerModel3d: 'simple',
   shadows3d: true,
+  grassStripes3d: true,
+  sky3d: true,
+  stands3d: true,
+  ballPattern3d: true,
 });
 
 /** The close-up cameras' settings, for the 3D renderer. */
@@ -149,6 +158,10 @@ const VIEW_3D_KEYS = [
   'banners3d',
   'playerModel3d',
   'shadows3d',
+  'grassStripes3d',
+  'sky3d',
+  'stands3d',
+  'ballPattern3d',
 ] as const satisfies readonly (keyof AppSettings)[];
 
 function reset(app: AppSettings, keys: readonly (keyof AppSettings)[]): void {
@@ -162,7 +175,7 @@ export function resetPlayerCamera(app: AppSettings): void {
   reset(app, PLAYER_CAMERA_KEYS);
 }
 
-/** The close-up cameras, the compass, the minimap, the boards, the banners and the players back to the defaults. */
+/** Everything of the 3D tab back to the defaults: the close-up cameras, the guides, the players, the stadium and the scenery. */
 export function resetView3d(app: AppSettings): void {
   reset(app, VIEW_3D_KEYS);
 }
@@ -284,6 +297,10 @@ export const SETTINGS: readonly Entry[] = [
   appBool('banners_3d', 'banners3d'),
   appChoice('player_model_3d', 'playerModel3d', PLAYER_MODELS),
   appBool('shadows_3d', 'shadows3d'),
+  appBool('grass_stripes_3d', 'grassStripes3d'),
+  appBool('sky_3d', 'sky3d'),
+  appBool('stands_3d', 'stands3d'),
+  appBool('ball_pattern_3d', 'ballPattern3d'),
 
   viewBool('show_score_board', 'showScoreBoard'),
   viewBool('show_team_graphic', 'showTeamGraphic'),

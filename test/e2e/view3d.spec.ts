@@ -56,6 +56,8 @@ interface Renderer {
     numberHeight: number;
     largestNumber: number;
     shadows: { cast: boolean; mapSize: number };
+    scenery: { stripes: boolean; sky: boolean; stands: boolean; ballPattern: boolean };
+    ballTurn: number[];
     cylinders: number;
     figures: {
       model: string;
@@ -1166,7 +1168,8 @@ test('writes the numbers from the top camera as large as the 2D player font', as
 test('draws the players as human figures, but cylinders from above and when unseen', async ({
   page,
 }) => {
-  await openApp(page, '?view_3d=on&camera_3d=broadcast&player_model_3d=figure');
+  // Without the shadows: in software, the 22 figures drawn twice are slow on CI.
+  await openApp(page, '?view_3d=on&camera_3d=broadcast&player_model_3d=figure&shadows_3d=off');
   await wait3d(page);
   await loadLog(page, 'json-sample.rcg.gz');
   // The model loads when chosen.
@@ -1387,7 +1390,8 @@ test('follows the ball or the selected player close up, the wheel setting the di
 test('plays the figures from the log: fouls, and the same pose however a frame is reached', async ({
   page,
 }) => {
-  await openApp(page, '?view_3d=on&camera_3d=broadcast&player_model_3d=figure');
+  // Without the shadows: in software, the 22 figures drawn twice are slow on CI.
+  await openApp(page, '?view_3d=on&camera_3d=broadcast&player_model_3d=figure&shadows_3d=off');
   await wait3d(page);
   await loadLog(page, 'json-sample.rcg.gz');
   await expect.poll(async () => (await scene(page))?.figures?.ready).toBe(true);
@@ -1465,4 +1469,94 @@ test('casts the shadows of the players from the sun, but not from the top camera
   await page.locator('#config-3d-default').click();
   await expect(box).toBeChecked();
   await expect.poll(async () => (await shadows())?.cast).toBe(true);
+});
+
+test('draws no black spot when the cylinders first appear after the figures', async ({ page }) => {
+  // With the figures and the shadows, the cylinders were drawn only in the
+  // shadow pass, without their colors; the first frame with them (here from
+  // above) drew one black at the field's center.
+  await openApp(page, '?view_3d=on&camera_3d=broadcast&player_model_3d=figure');
+  await wait3d(page);
+  await loadLog(page, 'json-sample.rcg.gz');
+  await expect.poll(async () => (await scene(page))?.figures?.ready).toBe(true);
+  await hook(page, (h) => {
+    h.showFrame(80); // nobody within 6 m of the center
+  });
+  await expect.poll(async () => (await scene(page))?.figures?.drawn).toBe(22);
+  const black = await page.evaluate(() => {
+    const h = window.rcssmonitorWeb as {
+      renderNow(): void;
+      field: {
+        renderer: {
+          setCameraMode(m: string): void;
+          fieldToScreen(x: number, y: number): { x: number; y: number } | null;
+          renderer: { getContext(): WebGL2RenderingContext; domElement: HTMLCanvasElement };
+        };
+      };
+    };
+    const r = h.field.renderer;
+    // Switched and drawn in one go: the first frame from above.
+    r.setCameraMode('top');
+    h.renderNow();
+    const c = r.renderer.domElement;
+    const gl = r.renderer.getContext();
+    const at = r.fieldToScreen(0, 0) ?? { x: 0, y: 0 };
+    const k = c.width / c.clientWidth;
+    const n = Math.round(30 * k);
+    const px = new Uint8Array(n * n * 4);
+    gl.readPixels(
+      Math.round(at.x * k - n / 2),
+      Math.round(c.height - at.y * k - n / 2),
+      n,
+      n,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      px,
+    );
+    let dark = 0;
+    for (let i = 0; i < px.length; i += 4) {
+      dark += (px[i] ?? 0) + (px[i + 1] ?? 0) + (px[i + 2] ?? 0) < 60 ? 1 : 0;
+    }
+    return dark;
+  });
+  expect(black).toBeLessThan(5);
+});
+
+test('shows the mowed stripes, the sky, the stands and a rolling ball, each of which can be hidden', async ({
+  page,
+}) => {
+  await openApp(page, '?view_3d=on&camera_3d=closeup-ball&shadows_3d=off');
+  await wait3d(page);
+  await loadLog(page, 'json-sample.rcg.gz');
+  const scenery = async () => (await scene(page))?.scenery;
+  await expect.poll(scenery).toEqual({ stripes: true, sky: true, stands: true, ballPattern: true });
+
+  // The ball rolls along its path, and is turned the same at a frame however it is reached.
+  const turn = async (frame: number) => {
+    await page.evaluate((f) => {
+      (window as unknown as { rcssmonitorWeb: Hook }).rcssmonitorWeb.showFrame(f);
+    }, frame);
+    await expect.poll(async () => (await scene(page))?.frameIndex).toBe(frame);
+    return (await scene(page))?.ballTurn;
+  };
+  const at40 = await turn(40);
+  expect(await turn(45)).not.toEqual(at40);
+  expect(await turn(40)).toEqual(at40);
+
+  // Each in the 3D tab; its Default shows them again.
+  await page.keyboard.press('Control+v');
+  await page.locator('#config-tab-3d').click();
+  for (const id of ['grass-stripes', 'sky', 'stands', 'ball-pattern']) {
+    const box = page.locator(`#config-${id}-3d`);
+    await expect(box).toBeChecked();
+    await expect(page.locator(`label:has(#config-${id}-3d)`)).toHaveAttribute('title', /./);
+    await box.uncheck();
+  }
+  await expect
+    .poll(scenery)
+    .toEqual({ stripes: false, sky: false, stands: false, ballPattern: false });
+  // Plain, the ball shows no turn.
+  await expect.poll(async () => (await scene(page))?.ballTurn).toEqual([0, 0, 0, 1]);
+  await page.locator('#config-3d-default').click();
+  await expect.poll(scenery).toEqual({ stripes: true, sky: true, stands: true, ballPattern: true });
 });

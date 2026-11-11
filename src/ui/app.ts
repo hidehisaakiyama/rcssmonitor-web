@@ -261,6 +261,12 @@ export class App {
     r.setStadium({ boards: s.boards3d, banners: s.banners3d });
     r.setPlayerModel(s.playerModel3d);
     r.setShadows(s.shadows3d);
+    r.setScenery({
+      stripes: s.grassStripes3d,
+      sky: s.sky3d,
+      stands: s.stands3d,
+      ballPattern: s.ballPattern3d,
+    });
   }
 
   // ---- 2D / 3D

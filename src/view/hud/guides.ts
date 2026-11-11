@@ -178,7 +178,7 @@ export class MinimapField {
   private key = '';
 
   image(view: ViewState, sp: ServerParam, r: Rect & { readonly scale: number }, dpr: number) {
-    const key = `${fieldTextureKey(view, sp)}|${r.width}x${r.height}@${dpr}`;
+    const key = `${fieldTextureKey(view, sp, false)}|${r.width}x${r.height}@${dpr}`;
     if (key !== this.key) {
       this.key = key;
       const c = this.canvas;

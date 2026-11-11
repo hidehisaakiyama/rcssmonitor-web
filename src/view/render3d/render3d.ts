@@ -46,6 +46,7 @@ import {
   Float32BufferAttribute,
   Group,
   HemisphereLight,
+  InstancedBufferAttribute,
   InstancedMesh,
   LineBasicMaterial,
   LineSegments,
@@ -111,6 +112,7 @@ import {
   type CloseupOptions,
   type Viewpoint,
 } from './cameras';
+import { ballMaterial, ballSpinAt } from './ball';
 import { fieldTextureKey, paintFieldTexture } from './field-texture';
 import {
   type FigureInput,
@@ -136,9 +138,21 @@ import {
   type World,
 } from './scene-math';
 import { FULL, perceiveBall, perceivePlayer, type Perception } from './sight';
+import { FAR_GROUND, Sky, Stands } from './scenery';
 import { Stadium, type StadiumState } from './stadium';
 
 const PLAYERS = 2 * MAX_PLAYER;
+
+/** The parts of the scenery shown (scenery.ts, ball.ts; the 3D tab). */
+export interface Scenery {
+  readonly stripes: boolean;
+  readonly sky: boolean;
+  readonly stands: boolean;
+  readonly ballPattern: boolean;
+}
+
+/** Without the sky, beyond the ground: as before the sky. */
+const CLEAR_COLOR = '#87a96b';
 /** A player whose team is not known (the player camera's sight). */
 const UNKNOWN_TEAM_COLOR = '#9a9a9a';
 /** As figures/gltf.ts FIGURE_SCALE: the figures are this much larger than life (loaded with it). */
@@ -243,6 +257,9 @@ export interface Render3DState {
   readonly largestNumber: number;
   /** Whether the sun casts the shadows (on, and not from the top camera), and their map's size. */
   readonly shadows: { readonly cast: boolean; readonly mapSize: number };
+  /** The scenery shown, and how the ball is turned (x, y, z, w). */
+  readonly scenery: Scenery;
+  readonly ballTurn: readonly number[];
   /** The ends in the team colors: the nets (left, right), the boards and the banners. */
   readonly stadium: StadiumState & { readonly nets: readonly string[] };
   /** The frame drawn last (before interpolation), or -1. */
@@ -361,6 +378,10 @@ export class Render3D implements FieldRenderer {
   private guides: { compass: GuideMode; minimap: GuideMode } = { compass: 'off', minimap: 'off' };
   private readonly ball: Mesh;
   private readonly ballMaterial: MeshLambertMaterial;
+  private readonly setBallPatterned: (on: boolean) => void;
+  private readonly sky = new Sky();
+  private readonly stands: Stands;
+  private scenery: Scenery = { stripes: false, sky: false, stands: false, ballPattern: false };
   private readonly shadow: Mesh;
   private readonly shadowMaterial: MeshBasicMaterial;
   /** The sun, which casts the players' and the goals' shadows on shadowGround. */
@@ -397,7 +418,7 @@ export class Render3D implements FieldRenderer {
     this.renderer = new WebGLRenderer({ antialias: true });
     this.canvas = this.renderer.domElement;
     this.canvas.className = 'field-layer';
-    this.renderer.setClearColor(new Color('#87a96b'));
+    this.renderer.setClearColor(new Color(CLEAR_COLOR));
     this.ortho.up.set(0, 0, -1); // -Z up on the screen, as the 2D view
 
     this.scene.add(new HemisphereLight(0xffffff, 0x3a5f3a, 1.6));
@@ -420,7 +441,8 @@ export class Render3D implements FieldRenderer {
     ground.rotation.x = -Math.PI / 2;
     this.scene.add(ground);
     const outside = new Mesh(
-      this.track(new PlaneGeometry(1000, 1000)),
+      // To where the haze hides it, with the sky.
+      this.track(new PlaneGeometry(2 * FAR_GROUND, 2 * FAR_GROUND)),
       this.track(new MeshBasicMaterial({ color: '#1a8a1a' })),
     );
     outside.rotation.x = -Math.PI / 2;
@@ -444,7 +466,10 @@ export class Render3D implements FieldRenderer {
 
     this.scene.add(this.goal(-1), this.goal(1), this.overlays.group);
     this.stadium = new Stadium(this.fieldTexture.anisotropy);
-    this.scene.add(this.stadium.group);
+    this.stands = new Stands(this.fieldTexture.anisotropy);
+    this.stands.group.visible = false;
+    this.sky.mesh.visible = false;
+    this.scene.add(this.stadium.group, this.stands.group, this.sky.mesh);
 
     // Players.
     const lambert = () => this.track(new MeshLambertMaterial({ color: 0xffffff }));
@@ -512,8 +537,11 @@ export class Render3D implements FieldRenderer {
     this.scene.add(this.largeView);
 
     // The ball and its shadow.
-    this.ballMaterial = this.track(new MeshLambertMaterial({ color: 0xffffff }));
-    this.ball = new Mesh(this.track(new SphereGeometry(1, 24, 16)), this.ballMaterial);
+    const ball = ballMaterial();
+    this.ballMaterial = this.track(ball.material);
+    this.setBallPatterned = ball.setPatterned;
+    this.setBallPatterned(false);
+    this.ball = new Mesh(this.track(new SphereGeometry(1, 32, 24)), this.ballMaterial);
     this.scene.add(this.ball);
     this.shadowMaterial = this.track(
       new MeshBasicMaterial({ color: 0x000000, transparent: true, depthWrite: false }),
@@ -597,7 +625,7 @@ export class Render3D implements FieldRenderer {
     this.updateStadium(scene, view);
     this.updatePlayers(frame, store, view, sp);
     this.updateViewAreas(frame, view, sp);
-    this.updateBall(frame, view, sp);
+    this.updateBall(frame, view, sp, scene);
     this.updateFigures(scene, sp);
     this.overlays.update(
       frame,
@@ -610,6 +638,7 @@ export class Render3D implements FieldRenderer {
     this.updateCamera(frame, view, dt);
     this.fitLabels(view);
     this.updateBars(view, sp);
+    this.sky.follow(this.camera.position);
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -675,6 +704,8 @@ export class Render3D implements FieldRenderer {
     this.detach();
     this.largeView.geometry.dispose();
     this.stadium.dispose();
+    this.stands.dispose();
+    this.sky.dispose();
     this.overlays.dispose();
     this.figures?.dispose();
     for (const d of this.disposables) {
@@ -738,6 +769,28 @@ export class Render3D implements FieldRenderer {
     this.onInvalidate?.();
   }
 
+  /**
+   * The mowed stripes, the sky (with the haze over the far ground), the
+   * stands and the ball's pattern (which then rolls).
+   */
+  setScenery(scenery: Scenery): void {
+    const s = this.scenery;
+    if (
+      scenery.stripes === s.stripes &&
+      scenery.sky === s.sky &&
+      scenery.stands === s.stands &&
+      scenery.ballPattern === s.ballPattern
+    ) {
+      return;
+    }
+    this.scenery = { ...scenery };
+    this.sky.mesh.visible = scenery.sky;
+    this.scene.fog = scenery.sky ? this.sky.fog : null;
+    this.stands.group.visible = scenery.stands;
+    this.setBallPatterned(scenery.ballPattern);
+    this.onInvalidate?.();
+  }
+
   /** The sun's shadows of the players and the goals (not from the top camera: they would crowd it). */
   setShadows(on: boolean): void {
     if (on === this.shadowsOn) {
@@ -748,10 +801,17 @@ export class Render3D implements FieldRenderer {
     this.onInvalidate?.();
   }
 
+  /**
+   * From the top camera, the shadows are hidden and their map not drawn,
+   * but the sun keeps casting: turning castShadow off and on changes every
+   * lit material's shader, and the first frames after it drew a black spot.
+   */
   private applyShadows(): void {
-    const cast = this.shadowsOn && this.mode !== 'top';
-    this.sun.castShadow = cast;
-    this.shadowGround.visible = cast;
+    const shown = this.shadowsOn && this.mode !== 'top';
+    this.sun.castShadow = this.shadowsOn;
+    this.sun.shadow.autoUpdate = shown;
+    this.sun.shadow.needsUpdate = shown;
+    this.shadowGround.visible = shown;
   }
 
   /**
@@ -926,7 +986,12 @@ export class Render3D implements FieldRenderer {
       numberPositions: this.numbers.map((s) => (s.visible ? world(s.position) : null)),
       numberHeight: LABEL_SCALE * this.labelK,
       largestNumber: this.largestNumber,
-      shadows: { cast: this.sun.castShadow, mapSize: this.sun.shadow.mapSize.x },
+      shadows: {
+        cast: this.sun.castShadow && this.shadowGround.visible,
+        mapSize: this.sun.shadow.mapSize.x,
+      },
+      scenery: { ...this.scenery },
+      ballTurn: this.ball.quaternion.toArray().map((v) => Math.round(v * 1e6) / 1e6),
       stadium: {
         ...this.stadium.inspect(),
         nets: this.nets.map((m) => `#${m.color.getHexString()}`),
@@ -1076,8 +1141,13 @@ export class Render3D implements FieldRenderer {
     renderOrder = 0,
     perPlayer = 1,
   ): InstancedMesh {
-    const mesh = new InstancedMesh(this.track(geometry), material, PLAYERS * perPlayer);
+    const count = PLAYERS * perPlayer;
+    const mesh = new InstancedMesh(this.track(geometry), material, count);
     mesh.frustumCulled = false; // the instances move; the geometry's bounds do not
+    // The colors from the start (white): added after the mesh was first
+    // drawn (in the shadow pass, before any cylinder was, with the figures),
+    // the first frame with them drew an instance black at the origin.
+    mesh.instanceColor = new InstancedBufferAttribute(new Float32Array(count * 3).fill(1), 3);
     mesh.count = 0;
     mesh.renderOrder = renderOrder;
     this.scene.add(mesh);
@@ -1239,13 +1309,16 @@ export class Render3D implements FieldRenderer {
       logo: view.options.showTeamGraphic ? (scene?.store.teamGraphics[i] ?? null) : null,
     });
     this.stadium.update([look(0), look(1)]);
+    if (this.scenery.stands) {
+      this.stands.update(colors);
+    }
   }
 
   private updateField(view: ViewState, sp: ServerParam): void {
-    const key = fieldTextureKey(view, sp);
+    const key = fieldTextureKey(view, sp, this.scenery.stripes);
     if (key !== this.fieldKey) {
       this.fieldKey = key;
-      paintFieldTexture(this.fieldCanvas, view, sp);
+      paintFieldTexture(this.fieldCanvas, view, sp, this.scenery.stripes);
       this.fieldTexture.needsUpdate = true;
     }
   }
@@ -1726,7 +1799,12 @@ export class Render3D implements FieldRenderer {
     this.counts = { ...this.counts, viewAreas: count };
   }
 
-  private updateBall(frame: Frame | null, view: ViewState, sp: ServerParam): void {
+  private updateBall(
+    frame: Frame | null,
+    view: ViewState,
+    sp: ServerParam,
+    scene: SceneSnapshot | null,
+  ): void {
     const ball = frame?.ball;
     const shown = ball !== undefined && view.options.showBall && this.ballPerceived;
     this.ball.visible = shown;
@@ -1737,6 +1815,12 @@ export class Render3D implements FieldRenderer {
     const r = ballRadius(view.options, sp);
     this.ball.scale.setScalar(r);
     this.ball.position.set(ball.x, ballCenterHeight(ball, r), ball.y);
+    // Rolled along its path with the pattern; plain, it shows no turn.
+    if (this.scenery.ballPattern && scene) {
+      ballSpinAt(scene.store, scene.frameIndex, scene.alpha, r, this.ball.quaternion);
+    } else {
+      this.ball.quaternion.identity();
+    }
     this.ballMaterial.color.set(view.colors.ball);
     this.shadow.scale.setScalar(r * 1.15);
     this.shadow.position.set(ball.x, 0.03, ball.y);

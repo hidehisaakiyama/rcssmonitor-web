@@ -848,6 +848,15 @@ export class ConfigDialog {
               app.shadows3d = on;
             },
           ),
+          this.check3d(
+            'config-ball-pattern-3d',
+            'Ball Pattern',
+            BALL_PATTERN_TOOLTIP,
+            () => app.ballPattern3d,
+            (on) => {
+              app.ballPattern3d = on;
+            },
+          ),
         ),
       ),
       this.group(
@@ -869,6 +878,35 @@ export class ConfigDialog {
             () => app.banners3d,
             (on) => {
               app.banners3d = on;
+            },
+          ),
+          this.check3d(
+            'config-stands-3d',
+            'Stands',
+            STANDS_TOOLTIP,
+            () => app.stands3d,
+            (on) => {
+              app.stands3d = on;
+            },
+          ),
+        ),
+        this.row(
+          this.check3d(
+            'config-grass-stripes-3d',
+            'Grass Stripes',
+            GRASS_STRIPES_TOOLTIP,
+            () => app.grassStripes3d,
+            (on) => {
+              app.grassStripes3d = on;
+            },
+          ),
+          this.check3d(
+            'config-sky-3d',
+            'Sky',
+            SKY_TOOLTIP,
+            () => app.sky3d,
+            (on) => {
+              app.sky3d = on;
             },
           ),
         ),
@@ -1216,6 +1254,18 @@ const PLAYER_MODELS_3D: Choice<AppSettings['playerModel3d']>[] = [
 const SHADOWS_TOOLTIP =
   'The players and the goals cast shadows from the sun on the ground, except from the top ' +
   'camera. The ball keeps its shadow right below it, which tells its height.';
+const BALL_PATTERN_TOOLTIP =
+  'The ball with the twelve dark pentagons of a football, rolling along its path ' +
+  '(at most a little under half a turn a cycle, so that a fast ball does not seem to turn back).';
+const STANDS_TOOLTIP =
+  'Stands along both touch lines, beyond the boards, with a crowd wearing more of the team ' +
+  'color on its half. None behind the goals, where the banners float. They never hide the ' +
+  'pitch from a camera in or behind them.';
+const GRASS_STRIPES_TOOLTIP =
+  'The grass mowed in stripes across the pitch, 5.25 m wide, lighter and darker than the field ' +
+  'color (the Color tab).';
+const SKY_TOOLTIP =
+  'A sky from the pale horizon to the blue above, with a haze over the far ground.';
 const BOARDS_TOOLTIP =
   'Boards around the pitch, 5.5 m out and 1 m high: a dark shade of the team color with the ' +
   'team name and edges in the team color, changing at the halfway line.';
@@ -1223,7 +1273,8 @@ const BANNERS_TOOLTIP =
   'A banner behind each goal, 22 m back and floating 12–20 m high, with the team name and ' +
   'logo: above the goal, so that the goal stands out against the sky and the ground beyond.';
 const STADIUM_NOTE =
-  'In the team colors, to tell the ends apart; the goal nets always are. Point for details.';
+  'The boards, the banners and the crowd are in the team colors, to tell the ends apart; the ' +
+  'goal nets always are. Point for details.';
 
 const choiceLabel = <T extends string>(choices: readonly Choice<T>[], v: T) =>
   choices.find(([c]) => c === v)?.[1] ?? v;
@@ -1254,6 +1305,10 @@ function defaultView3d(): string {
     `Banners ${d.banners3d ? 'On' : 'Off'}`,
     `Model ${choiceLabel(PLAYER_MODELS_3D, d.playerModel3d)}`,
     `Shadows ${d.shadows3d ? 'On' : 'Off'}`,
+    `Ball Pattern ${d.ballPattern3d ? 'On' : 'Off'}`,
+    `Stands ${d.stands3d ? 'On' : 'Off'}`,
+    `Grass Stripes ${d.grassStripes3d ? 'On' : 'Off'}`,
+    `Sky ${d.sky3d ? 'On' : 'Off'}`,
   ].join(', ');
 }
 

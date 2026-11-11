@@ -12,6 +12,8 @@ const HALF_WIDTH = PITCH.width * 0.5;
 export interface FieldOptions {
   /** The goals as boxes behind the goal lines (default). The 3D view builds its own. */
   readonly goals?: boolean;
+  /** Drawn over the field color, under the lines (the 3D view's mowed stripes). */
+  readonly grass?: (p: QtPainter, vp: Viewport) => void;
 }
 
 export function drawField(
@@ -23,6 +25,7 @@ export function drawField(
 ): void {
   p.antialias = false;
   p.fillRect(0, 0, vp.width, vp.height, view.colors.field);
+  options.grass?.(p, vp);
   drawLines(p, vp, view, sp);
   drawPenaltyAreaLines(p, vp, view);
   drawGoalAreaLines(p, vp, view);
