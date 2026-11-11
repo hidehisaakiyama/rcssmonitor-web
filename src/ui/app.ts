@@ -267,6 +267,12 @@ export class App {
       stands: s.stands3d,
       ballPattern: s.ballPattern3d,
     });
+    r.setBallAids({
+      ring: s.ballRing3d,
+      ringRadius: s.ballRingRadius3d,
+      trail: s.ballTrail3d,
+      trailCycles: s.ballTrailCycles3d,
+    });
   }
 
   // ---- 2D / 3D

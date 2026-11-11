@@ -19,6 +19,7 @@ import {
   type AppSettings,
 } from '../../options/settings';
 import { DEFAULT_FONTS, DEFAULT_PALETTE, type Fonts, type Palette } from '../../view/palette';
+import { BALL_AIDS } from '../../view/render3d/ball-aids';
 import { CLOSEUP_RANGE } from '../../view/render3d/cameras';
 import { DEFAULT_PLAYER_CAMERA } from '../../view/render3d/player-camera';
 import {
@@ -848,14 +849,62 @@ export class ConfigDialog {
               app.shadows3d = on;
             },
           ),
+        ),
+      ),
+      this.group(
+        'Ball',
+        this.row(
           this.check3d(
             'config-ball-pattern-3d',
-            'Ball Pattern',
+            'Pattern',
             BALL_PATTERN_TOOLTIP,
             () => app.ballPattern3d,
             (on) => {
               app.ballPattern3d = on;
             },
+          ),
+          this.check3d(
+            'config-ball-ring-3d',
+            'Ring',
+            BALL_RING_TOOLTIP,
+            () => app.ballRing3d,
+            (on) => {
+              app.ballRing3d = on;
+            },
+          ),
+          this.check3d(
+            'config-ball-trail-3d',
+            'Trail',
+            BALL_TRAIL_TOOLTIP,
+            () => app.ballTrail3d,
+            (on) => {
+              app.ballTrail3d = on;
+            },
+          ),
+        ),
+        this.row(
+          ...this.number3d(
+            'config-ball-ring-radius-3d',
+            'Ring Radius (m):',
+            'The radius of the ring around the ball, in meters (by default the default ' +
+              'kickable_margin).',
+            () => app.ballRingRadius3d,
+            (v) => {
+              app.ballRingRadius3d = v;
+            },
+            { ...BALL_AIDS.ringRange, step: 0.1, unit: ' m' },
+            () => app.ballRing3d,
+          ),
+          ...this.number3d(
+            'config-ball-trail-cycles-3d',
+            'Trail (cycles):',
+            'How many cycles back the trail goes.',
+            () => app.ballTrailCycles3d,
+            (v) => {
+              app.ballTrailCycles3d = Math.round(v);
+            },
+            { ...BALL_AIDS.trailRange, step: 1, unit: '' },
+            () => app.ballTrail3d,
           ),
         ),
       ),
@@ -1254,6 +1303,12 @@ const PLAYER_MODELS_3D: Choice<AppSettings['playerModel3d']>[] = [
 const SHADOWS_TOOLTIP =
   'The players and the goals cast shadows from the sun on the ground, except from the top ' +
   'camera. The ball keeps its shadow right below it, which tells its height.';
+const BALL_RING_TOOLTIP =
+  'A ring on the ground around the ball, to find it where it is small; its line stays at least ' +
+  '2 pixels wide however far the camera is.';
+const BALL_TRAIL_TOOLTIP =
+  'A trail behind the ball like a contrail, along where it went in the last cycles, narrower ' +
+  'and fainter the older; it breaks where the ball is placed.';
 const BALL_PATTERN_TOOLTIP =
   'The ball with the twelve dark pentagons of a football, rolling along its path ' +
   '(at most a little under half a turn a cycle, so that a fast ball does not seem to turn back).';
@@ -1306,6 +1361,8 @@ function defaultView3d(): string {
     `Model ${choiceLabel(PLAYER_MODELS_3D, d.playerModel3d)}`,
     `Shadows ${d.shadows3d ? 'On' : 'Off'}`,
     `Ball Pattern ${d.ballPattern3d ? 'On' : 'Off'}`,
+    `Ball Ring ${d.ballRing3d ? `${d.ballRingRadius3d} m` : 'Off'}`,
+    `Ball Trail ${d.ballTrail3d ? `${d.ballTrailCycles3d} cycles` : 'Off'}`,
     `Stands ${d.stands3d ? 'On' : 'Off'}`,
     `Grass Stripes ${d.grassStripes3d ? 'On' : 'Off'}`,
     `Sky ${d.sky3d ? 'On' : 'Off'}`,

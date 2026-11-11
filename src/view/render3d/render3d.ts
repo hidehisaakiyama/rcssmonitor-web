@@ -46,7 +46,6 @@ import {
   Float32BufferAttribute,
   Group,
   HemisphereLight,
-  InstancedBufferAttribute,
   InstancedMesh,
   LineBasicMaterial,
   LineSegments,
@@ -113,6 +112,14 @@ import {
   type Viewpoint,
 } from './cameras';
 import { ballMaterial, ballSpinAt } from './ball';
+import {
+  BALL_AIDS,
+  BallRing,
+  BallTrail,
+  ballTrailPoints,
+  TRAIL_PIXELS,
+  TRAIL_WIDTH,
+} from './ball-aids';
 import { fieldTextureKey, paintFieldTexture } from './field-texture';
 import {
   type FigureInput,
@@ -149,6 +156,16 @@ export interface Scenery {
   readonly sky: boolean;
   readonly stands: boolean;
   readonly ballPattern: boolean;
+}
+
+/** What helps to find the ball (ball-aids.ts; the 3D tab's Ball group). */
+export interface BallAids {
+  readonly ring: boolean;
+  /** The ring's radius (m). */
+  readonly ringRadius: number;
+  readonly trail: boolean;
+  /** How many cycles back the trail goes. */
+  readonly trailCycles: number;
 }
 
 /** Without the sky, beyond the ground: as before the sky. */
@@ -260,6 +277,9 @@ export interface Render3DState {
   /** The scenery shown, and how the ball is turned (x, y, z, w). */
   readonly scenery: Scenery;
   readonly ballTurn: readonly number[];
+  /** The ring around the ball (its line's width as drawn, m), and the points of its trail. */
+  readonly ballRing: { readonly visible: boolean; readonly radius: number; readonly width: number };
+  readonly ballTrail: number;
   /** The ends in the team colors: the nets (left, right), the boards and the banners. */
   readonly stadium: StadiumState & { readonly nets: readonly string[] };
   /** The frame drawn last (before interpolation), or -1. */
@@ -382,6 +402,14 @@ export class Render3D implements FieldRenderer {
   private readonly sky = new Sky();
   private readonly stands: Stands;
   private scenery: Scenery = { stripes: false, sky: false, stands: false, ballPattern: false };
+  private readonly ballRing = new BallRing();
+  private readonly ballTrail = new BallTrail();
+  private ballAids: BallAids = {
+    ring: false,
+    ringRadius: BALL_AIDS.ringRadius,
+    trail: false,
+    trailCycles: BALL_AIDS.trailCycles,
+  };
   private readonly shadow: Mesh;
   private readonly shadowMaterial: MeshBasicMaterial;
   /** The sun, which casts the players' and the goals' shadows on shadowGround. */
@@ -551,7 +579,7 @@ export class Render3D implements FieldRenderer {
       this.shadowMaterial,
     );
     this.shadow.renderOrder = 2;
-    this.scene.add(this.shadow);
+    this.scene.add(this.shadow, this.ballRing.mesh, this.ballTrail.mesh);
   }
 
   // ---- FieldRenderer
@@ -638,7 +666,15 @@ export class Render3D implements FieldRenderer {
     this.updateCamera(frame, view, dt);
     this.fitLabels(view);
     this.updateBars(view, sp);
+    this.updateBallAids(scene, view, sp);
     this.sky.follow(this.camera.position);
+    // three.js sends each object's buffers to the GPU once a frame, first
+    // while listing the objects, before it counts the frame: so under the
+    // number of the last frame's shadow pass. What that pass sent last
+    // frame is not sent again then, and without a shadow pass this frame
+    // (from the top camera) it is drawn as it was: the cylinders, first
+    // drawn after the figures, all at the origin. A number of its own.
+    this.renderer.info.render.frame++;
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -706,6 +742,8 @@ export class Render3D implements FieldRenderer {
     this.stadium.dispose();
     this.stands.dispose();
     this.sky.dispose();
+    this.ballRing.dispose();
+    this.ballTrail.dispose();
     this.overlays.dispose();
     this.figures?.dispose();
     for (const d of this.disposables) {
@@ -789,6 +827,65 @@ export class Render3D implements FieldRenderer {
     this.stands.group.visible = scenery.stands;
     this.setBallPatterned(scenery.ballPattern);
     this.onInvalidate?.();
+  }
+
+  /** The ring around the ball and its trail. */
+  setBallAids(aids: BallAids): void {
+    const a = this.ballAids;
+    if (
+      aids.ring === a.ring &&
+      aids.ringRadius === a.ringRadius &&
+      aids.trail === a.trail &&
+      aids.trailCycles === a.trailCycles
+    ) {
+      return;
+    }
+    this.ballAids = { ...aids };
+    this.onInvalidate?.();
+  }
+
+  /** Meters per CSS pixel at `at` as the camera sees it (where it is in front of it). */
+  private metersPerPixel(at: World): number {
+    if (this.mode === 'top') {
+      return (this.ortho.top - this.ortho.bottom) / Math.max(1, this.height);
+    }
+    const c = this.perspective;
+    const forward = new Vector3(0, 0, -1).applyQuaternion(c.quaternion);
+    const depth = Math.max(
+      0.1,
+      (at.x - c.position.x) * forward.x +
+        (at.y - c.position.y) * forward.y +
+        (at.z - c.position.z) * forward.z,
+    );
+    return (depth * 2 * Math.tan((c.fov / 2) * DEG2RAD)) / Math.max(1, this.height);
+  }
+
+  /**
+   * The ring and the trail, where the ball is drawn (updateBall), once the
+   * camera has moved: their lines are kept a few pixels wide.
+   */
+  private updateBallAids(scene: SceneSnapshot | null, view: ViewState, sp: ServerParam): void {
+    const a = this.ballAids;
+    const shown = this.ball.visible && scene !== null;
+    const at = world(this.ball.position);
+    const mpp = shown ? this.metersPerPixel(at) : 0;
+    const color = view.colors.ball;
+    this.ballRing.mesh.visible = shown && a.ring;
+    if (this.ballRing.mesh.visible) {
+      this.ballRing.update(at, a.ringRadius, mpp, color);
+    }
+    const r = ballRadius(view.options, sp);
+    const points =
+      shown && a.trail && scene
+        ? ballTrailPoints(scene.store, scene.frameIndex, scene.alpha, a.trailCycles, r)
+        : [];
+    this.ballTrail.update(
+      points,
+      world(this.camera.position),
+      Math.max(TRAIL_WIDTH * r, TRAIL_PIXELS * mpp),
+      a.trailCycles,
+      color,
+    );
   }
 
   /** The sun's shadows of the players and the goals (not from the top camera: they would crowd it). */
@@ -992,6 +1089,12 @@ export class Render3D implements FieldRenderer {
       },
       scenery: { ...this.scenery },
       ballTurn: this.ball.quaternion.toArray().map((v) => Math.round(v * 1e6) / 1e6),
+      ballRing: {
+        visible: this.ballRing.mesh.visible,
+        radius: this.ballAids.ringRadius,
+        width: this.ballRing.width,
+      },
+      ballTrail: this.ballTrail.mesh.visible ? this.ballTrail.points : 0,
       stadium: {
         ...this.stadium.inspect(),
         nets: this.nets.map((m) => `#${m.color.getHexString()}`),
@@ -1141,13 +1244,8 @@ export class Render3D implements FieldRenderer {
     renderOrder = 0,
     perPlayer = 1,
   ): InstancedMesh {
-    const count = PLAYERS * perPlayer;
-    const mesh = new InstancedMesh(this.track(geometry), material, count);
+    const mesh = new InstancedMesh(this.track(geometry), material, PLAYERS * perPlayer);
     mesh.frustumCulled = false; // the instances move; the geometry's bounds do not
-    // The colors from the start (white): added after the mesh was first
-    // drawn (in the shadow pass, before any cylinder was, with the figures),
-    // the first frame with them drew an instance black at the origin.
-    mesh.instanceColor = new InstancedBufferAttribute(new Float32Array(count * 3).fill(1), 3);
     mesh.count = 0;
     mesh.renderOrder = renderOrder;
     this.scene.add(mesh);

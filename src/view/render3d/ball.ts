@@ -9,7 +9,7 @@ import type { GameStore } from '../../core/game-store';
 /** At most this much a cycle (radians), so that a fast ball does not seem to turn back at 60 fps. */
 export const MAX_ROLL = 0.8 * Math.PI;
 /** Farther than this in a cycle (m) is a placement (a kick-off, a free kick), not rolling. */
-const PLACED = 5;
+export const PLACED = 5;
 
 /** The corners of an icosahedron (the pentagons' centers), and for each a neighbor (a corner's direction). */
 export function pentagonCenters(): { centers: Vector3[]; toward: Vector3[] } {

@@ -58,6 +58,8 @@ interface Renderer {
     shadows: { cast: boolean; mapSize: number };
     scenery: { stripes: boolean; sky: boolean; stands: boolean; ballPattern: boolean };
     ballTurn: number[];
+    ballRing: { visible: boolean; radius: number; width: number };
+    ballTrail: number;
     cylinders: number;
     figures: {
       model: string;
@@ -1471,10 +1473,10 @@ test('casts the shadows of the players from the sun, but not from the top camera
   await expect.poll(async () => (await shadows())?.cast).toBe(true);
 });
 
-test('draws no black spot when the cylinders first appear after the figures', async ({ page }) => {
-  // With the figures and the shadows, the cylinders were drawn only in the
-  // shadow pass, without their colors; the first frame with them (here from
-  // above) drew one black at the field's center.
+test('draws the cylinders where they are the first time after the figures', async ({ page }) => {
+  // With the figures and the shadows, the cylinders were sent to the GPU
+  // only in the shadow pass; the first frame from above, without one, drew
+  // them as they were made: all at the field's center.
   await openApp(page, '?view_3d=on&camera_3d=broadcast&player_model_3d=figure');
   await wait3d(page);
   await loadLog(page, 'json-sample.rcg.gz');
@@ -1483,7 +1485,7 @@ test('draws no black spot when the cylinders first appear after the figures', as
     h.showFrame(80); // nobody within 6 m of the center
   });
   await expect.poll(async () => (await scene(page))?.figures?.drawn).toBe(22);
-  const black = await page.evaluate(() => {
+  const changed = await page.evaluate(() => {
     const h = window.rcssmonitorWeb as {
       renderNow(): void;
       field: {
@@ -1495,31 +1497,41 @@ test('draws no black spot when the cylinders first appear after the figures', as
       };
     };
     const r = h.field.renderer;
-    // Switched and drawn in one go: the first frame from above.
-    r.setCameraMode('top');
-    h.renderNow();
     const c = r.renderer.domElement;
     const gl = r.renderer.getContext();
-    const at = r.fieldToScreen(0, 0) ?? { x: 0, y: 0 };
-    const k = c.width / c.clientWidth;
-    const n = Math.round(30 * k);
-    const px = new Uint8Array(n * n * 4);
-    gl.readPixels(
-      Math.round(at.x * k - n / 2),
-      Math.round(c.height - at.y * k - n / 2),
-      n,
-      n,
-      gl.RGBA,
-      gl.UNSIGNED_BYTE,
-      px,
-    );
-    let dark = 0;
-    for (let i = 0; i < px.length; i += 4) {
-      dark += (px[i] ?? 0) + (px[i + 1] ?? 0) + (px[i + 2] ?? 0) < 60 ? 1 : 0;
+    const around = () => {
+      const at = r.fieldToScreen(0, 0) ?? { x: 0, y: 0 };
+      const k = c.width / c.clientWidth;
+      const n = Math.round(30 * k);
+      const px = new Uint8Array(n * n * 4);
+      gl.readPixels(
+        Math.round(at.x * k - n / 2),
+        Math.round(c.height - at.y * k - n / 2),
+        n,
+        n,
+        gl.RGBA,
+        gl.UNSIGNED_BYTE,
+        px,
+      );
+      return px;
+    };
+    // Switched and drawn in one go: the first frame from above, then the next.
+    r.setCameraMode('top');
+    h.renderNow();
+    const first = around();
+    h.renderNow();
+    const next = around();
+    let n = 0;
+    for (let i = 0; i < first.length; i += 4) {
+      const d =
+        Math.abs((first[i] ?? 0) - (next[i] ?? 0)) +
+        Math.abs((first[i + 1] ?? 0) - (next[i + 1] ?? 0)) +
+        Math.abs((first[i + 2] ?? 0) - (next[i + 2] ?? 0));
+      n += d > 30 ? 1 : 0;
     }
-    return dark;
+    return n;
   });
-  expect(black).toBeLessThan(5);
+  expect(changed).toBeLessThan(5);
 });
 
 test('shows the mowed stripes, the sky, the stands and a rolling ball, each of which can be hidden', async ({
@@ -1559,4 +1571,53 @@ test('shows the mowed stripes, the sky, the stands and a rolling ball, each of w
   await expect.poll(async () => (await scene(page))?.ballTurn).toEqual([0, 0, 0, 1]);
   await page.locator('#config-3d-default').click();
   await expect.poll(scenery).toEqual({ stripes: true, sky: true, stands: true, ballPattern: true });
+});
+
+test('rings the ball on the ground and draws its trail, as set in the 3D tab', async ({ page }) => {
+  await openApp(page, '?view_3d=on&camera_3d=broadcast&shadows_3d=off');
+  await wait3d(page);
+  await loadLog(page, 'json-sample.rcg.gz');
+  await hook(page, (h) => {
+    h.showFrame(45); // the ball on its way
+  });
+  await expect.poll(async () => (await scene(page))?.frameIndex).toBe(45);
+  // By default a ring of 0.7 m, its line at least 2 pixels wide from afar,
+  // and a trail through the last 5 cycles (the 6 frames, back to frame 40).
+  await expect
+    .poll(async () => {
+      const s = await scene(page);
+      return s && { ring: s.ballRing.visible, radius: s.ballRing.radius, trail: s.ballTrail };
+    })
+    .toEqual({ ring: true, radius: 0.7, trail: 6 });
+  expect((await scene(page))?.ballRing.width).toBeGreaterThan(0.06);
+
+  await page.keyboard.press('Control+v');
+  await page.locator('#config-tab-3d').click();
+  for (const id of ['ring', 'trail']) {
+    await expect(page.locator(`label:has(#config-ball-${id}-3d)`)).toHaveAttribute('title', /./);
+  }
+  const radius = page.locator('#config-ball-ring-radius-3d');
+  await expect(page.locator('label[for="config-ball-ring-radius-3d"]')).toHaveAttribute(
+    'title',
+    /Range: 0.1–5 m/,
+  );
+  await radius.fill('2');
+  await radius.press('Enter');
+  await expect.poll(async () => (await scene(page))?.ballRing.radius).toBe(2);
+  const cycles = page.locator('#config-ball-trail-cycles-3d');
+  await cycles.fill('8');
+  await cycles.press('Enter');
+  await expect.poll(async () => (await scene(page))?.ballTrail).toBe(9);
+  await page.locator('#config-ball-ring-3d').uncheck();
+  await page.locator('#config-ball-trail-3d').uncheck();
+  await expect
+    .poll(async () => {
+      const s = await scene(page);
+      return s && [s.ballRing.visible, s.ballTrail];
+    })
+    .toEqual([false, 0]);
+  await page.locator('#config-3d-default').click();
+  await expect(radius).toHaveValue('0.7');
+  await expect(cycles).toHaveValue('5');
+  await expect.poll(async () => (await scene(page))?.ballTrail).toBe(6);
 });

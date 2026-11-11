@@ -15,6 +15,7 @@ import {
   type Palette,
 } from '../view/palette';
 import { GUIDE_MODES, type GuideMode } from '../view/hud/guides';
+import { BALL_AIDS } from '../view/render3d/ball-aids';
 import {
   CAMERA_MODES,
   CLOSEUP_RANGE,
@@ -83,6 +84,11 @@ export interface AppSettings {
   sky3d: boolean;
   stands3d: boolean;
   ballPattern3d: boolean;
+  /** The ring around the ball and its trail (render3d/ball-aids.ts). */
+  ballRing3d: boolean;
+  ballRingRadius3d: number;
+  ballTrail3d: boolean;
+  ballTrailCycles3d: number;
 }
 
 export const DEFAULT_APP_SETTINGS: Readonly<AppSettings> = Object.freeze({
@@ -115,6 +121,10 @@ export const DEFAULT_APP_SETTINGS: Readonly<AppSettings> = Object.freeze({
   sky3d: true,
   stands3d: true,
   ballPattern3d: true,
+  ballRing3d: true,
+  ballRingRadius3d: BALL_AIDS.ringRadius,
+  ballTrail3d: true,
+  ballTrailCycles3d: BALL_AIDS.trailCycles,
 });
 
 /** The close-up cameras' settings, for the 3D renderer. */
@@ -162,6 +172,10 @@ const VIEW_3D_KEYS = [
   'sky3d',
   'stands3d',
   'ballPattern3d',
+  'ballRing3d',
+  'ballRingRadius3d',
+  'ballTrail3d',
+  'ballTrailCycles3d',
 ] as const satisfies readonly (keyof AppSettings)[];
 
 function reset(app: AppSettings, keys: readonly (keyof AppSettings)[]): void {
@@ -301,6 +315,13 @@ export const SETTINGS: readonly Entry[] = [
   appBool('sky_3d', 'sky3d'),
   appBool('stands_3d', 'stands3d'),
   appBool('ball_pattern_3d', 'ballPattern3d'),
+  appBool('ball_ring_3d', 'ballRing3d'),
+  appNumber('ball_ring_radius_3d', 'ballRingRadius3d', BALL_AIDS.ringRange),
+  appBool('ball_trail_3d', 'ballTrail3d'),
+  appNumber('ball_trail_cycles_3d', 'ballTrailCycles3d', {
+    ...BALL_AIDS.trailRange,
+    integer: true,
+  }),
 
   viewBool('show_score_board', 'showScoreBoard'),
   viewBool('show_team_graphic', 'showTeamGraphic'),
