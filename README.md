@@ -36,7 +36,7 @@ Changing the play mode from the monitor needs the coach mode (`server::coach=tru
 
 ## Usage
 
-- **Logs**: File > Open Game Log (Ctrl+O), the open button, or drop a file on the window.
+- **Logs**: File > Open Game Log (Ctrl+O), the open button, or drop a file on the window. File > Open Game Log from URL downloads a log from the web and opens it; so does the URL parameter `log` (below). The server of the log must let other sites read it (CORS; GitHub's raw files do), and a page served over HTTPS cannot read `http://` URLs other than `localhost`. When the log cannot be read, the status bar offers a link to download it; open the saved file.
 - **Live**: Monitor > Connect to ... (host, port and path; the default is `localhost:6080/monitor`), or Monitor > Connect (Ctrl+C) to connect again to the last server. While connected, the view follows the newest frame (live mode, Ctrl+L); step back to look at earlier frames.
 - **Referee**: the Referee menu, and the pop-up menu of the field (right click) for commands at a point. In 3D, a right click on a player aims at that player (for the cards) and its feet; on the ground, at the point on the pitch or its margin.
 - **View**: View > Preference (Ctrl+V), View > Player Type List (Ctrl+H), Help > Shortcut Keys.
@@ -47,7 +47,10 @@ URL parameters stand in for rcssmonitor's command line options, with the same na
 ```
 rcssmonitor-web.html?connect=1&server_host=192.168.0.10&server_port=6080&auto_reconnect_mode=on
 rcssmonitor-web.html?show_view_area=on&show-offside-line=on&grid_step=10&field_brush=1fa01f&timer_interval=50
+https://hidehisaakiyama.github.io/rcssmonitor-web/?log=https://example.org/logs/game.rcg.gz
 ```
+
+`log` opens the log at that URL, as a log file on rcssmonitor's command line does (it comes before `connect`). A link with it shows a game in one click. Escape `&`, `#` and `+` in the log's URL (`encodeURIComponent`).
 
 Values given in the URL apply to that page; they are not saved unless changed afterwards. See [docs/parity.md](docs/parity.md) for the full list and for how each rcssmonitor feature and key is handled.
 

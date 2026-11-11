@@ -408,6 +408,20 @@ gzip かどうかは、その前に先頭の `1f 8b` で判定する。
 - GitHub Pages のような公開オリジンからの接続は、この検証では再現できていない。Chrome の Local Network Access の許可も関わる。
 - 方針は変えない。Pages 版は localhost への接続とログ再生用、LAN 内の接続には単一 HTML 版を使う。
 
+### URL からログを読む場合 (2026-11-11、E2E テストで確認)
+
+File > Open Game Log from URL と `?log=` は `fetch()` でログを取得する。file:// で開いた単一 HTML から、同じマシンの別のポートで動く HTTP サーバ (`http://127.0.0.1:PORT`) のログを読んだ (Playwright の Chromium と Firefox。`test/e2e/open-url.spec.ts`)。
+
+| サーバの応答 | Chromium | Firefox |
+|---|---|---|
+| `Access-Control-Allow-Origin: *` あり | 読める | 読める |
+| なし | `TypeError` (ネットワークの失敗と区別できない) | `TypeError` (同じ) |
+| 404 (`Access-Control-Allow-Origin: *` あり) | 状態を読める | 状態を読める |
+
+- file:// のページの Origin は `null` だが、`*` を返すサーバなら読める。
+- CORS で読めない URL を新しいタブで開くと (`target="_blank"`)、`application/gzip` のログはどちらのブラウザでもダウンロードになる。別のサイトの URL なので、リンクの `download` 属性は効かない。
+- https のページから http:// の URL (localhost を除く) は、仕様上 mixed content として遮断される。Pages 版での確認はまだ。
+
 ### 未確認事項
 
 - Firefox で https のページから `ws://` に接続した場合。Firefox は既定で、https から localhost 以外への `ws://` を遮断するはず。
