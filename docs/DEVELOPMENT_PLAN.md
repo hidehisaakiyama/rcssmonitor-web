@@ -937,3 +937,12 @@ asio 版サーバで見つかった問題 (サーバ側で対応を検討する)
 - 単体テスト 280 件と E2E テスト 138 件 (Chromium と Firefox) が通った。
 - PR #4 (feature/open-url → develop) の CI で、単体テスト「reads a log the server compresses on the way」が 5 秒の制限を超えて落ちた (同じコミットの push の CI では通っていた)。止まっていたのではなく遅かった。取得したバイト列を `toEqual` で比べていて、展開後の 2.3 MB を 1 要素ずつ比べるのに手元でも約 3 秒かかり、テストファイルを並べて流す CI の負荷で制限を超えた。`Buffer.equals` で一度に比べる形に改め、3.2 秒から 0.04 秒になった (ほかの取得のテストも 0.3 秒から数ミリ秒に)。
 - PR #4 の CI が通り、ユーザが develop に取り込んだ (取り込みのコミット `bc21a11`)。プレリリース 20.0.0-beta.3 に入れる。
+
+### プレリリース 20.0.0-beta.3 (2026-11-11〜11-12)
+
+- develop の CI (`9b066be`、版を上げたコミット) が、Playwright のブラウザに要る Ubuntu のパッケージを取るところで 2 回止まった (PR #4 の取り込みの `bc21a11` も同じ)。ランナーが `*.ubuntu.com` の名前を引けず (`Temporary failure resolving`)、20 分ほど再試行してから終わっていた。同じジョブの `npm ci` は通り、手元からはミラーの名前を引けて、GitHub のステータスも平常だったので、ランナーの側の一時的な障害とみた。時間をおいた再実行で通った。コードとワークフローは変えていない。
+
+**完了条件の確認**
+- develop を main に取り込み (PR #5、取り込みのコミット `07e9c0b`)、ユーザがタグ `v20.0.0-beta.3` を付けて push した。Release ワークフローが成功した。
+- リリースは Pre-release の印付きで公開され、単一 HTML (`rcssmonitor-web-v20.0.0-beta.3.html`、1.39 MB) と dist の zip (386 kB) が添付された。本文は `docs/release-notes/v20.0.0-beta.3.md` から入った。
+- ユーザが確かめた: リリースのページ、About の版、Pages 版 (https) で URL からログを開けること (URL の機能で残していた確認)、http:// の URL を入力したときのダイアログの警告。
