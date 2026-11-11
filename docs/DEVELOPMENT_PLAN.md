@@ -925,3 +925,4 @@ asio 版サーバで見つかった問題 (サーバ側で対応を検討する)
 - 実際の GitHub での確認 (Chromium と Firefox、file:// の単一 HTML): RoboCup2026 の決勝のログを、ページの URL と raw のリンクで開けた (text v6、6,469 フレーム、HELIOS2026 0-1 YuShan2026)。LFS のファイルは、ログの公開リポジトリが見つからないので、Unity-Technologies/FPSSample の fbx で試した。raw からポインタ (130 バイト)、media から実体 (870,464 バイト) を読み、形式の判定まで進んだ (ログではないので「unsupported log format」)。
 - 非公開リポジトリのファイルは、raw.githubusercontent.com が 404 を返すので開けない (ブラウザのログイン情報は送らない)。
 - 単体テスト 280 件と E2E テスト 138 件 (Chromium と Firefox) が通った。
+- PR #4 (feature/open-url → develop) の CI で、単体テスト「reads a log the server compresses on the way」が 5 秒の制限を超えて落ちた (同じコミットの push の CI では通っていた)。止まっていたのではなく遅かった。取得したバイト列を `toEqual` で比べていて、展開後の 2.3 MB を 1 要素ずつ比べるのに手元でも約 3 秒かかり、テストファイルを並べて流す CI の負荷で制限を超えた。`Buffer.equals` で一度に比べる形に改め、3.2 秒から 0.04 秒になった (ほかの取得のテストも 0.3 秒から数ミリ秒に)。

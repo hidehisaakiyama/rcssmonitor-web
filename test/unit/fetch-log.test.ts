@@ -17,6 +17,13 @@ import { fixture, loadBytes } from './helpers';
 
 const PAGE = 'https://example.github.io/rcssmonitor-web/';
 
+/**
+ * Whether the bytes are the same. Compared at once: toEqual() on typed
+ * arrays goes element by element and takes seconds for a whole log, which
+ * timed out on CI.
+ */
+const sameBytes = (a: ArrayBuffer, b: Uint8Array) => Buffer.from(a).equals(b);
+
 describe('parseLogUrl', () => {
   it('takes http and https URLs, and URLs relative to the page', () => {
     expect(parseLogUrl(' https://logs.example.org/a/game.rcg.gz ', PAGE).href).toBe(
@@ -185,7 +192,7 @@ describe('fetchLog', () => {
     const buffer = await fetchLog(url('/logs/json-sample.rcg.gz'), {
       progress: (received, total) => progress.push([received, total]),
     });
-    expect(new Uint8Array(buffer)).toEqual(gz);
+    expect(sameBytes(buffer, gz)).toBe(true);
     expect(progress.length).toBeGreaterThan(1);
     expect(progress.at(-1)).toEqual([gz.length, gz.length]);
     for (let i = 1; i < progress.length; ++i) {
@@ -224,7 +231,7 @@ describe('fetchLog', () => {
     const buffer = await fetchLog(url('/game.rcg'), {
       progress: (received, total) => (last = [received, total]),
     });
-    expect(new Uint8Array(buffer)).toEqual(new Uint8Array(text));
+    expect(sameBytes(buffer, text)).toBe(true);
     expect(last).toEqual([text.length, body.length]);
     expect((await loadBytes(new Uint8Array(buffer))).store.frameCount).toBe(267);
   });
@@ -296,13 +303,13 @@ describe('fetchLog with Git LFS on GitHub', () => {
       progress: (received, total) => progress.push([received, total]),
     });
     expect(asked).toEqual([RAW, MEDIA]);
-    expect(new Uint8Array(buffer)).toEqual(gz);
+    expect(sameBytes(buffer, gz)).toBe(true);
     expect(progress.at(-1)).toEqual([gz.length, gz.length]);
   });
 
   it('reads a file not in LFS once', async () => {
     const asked = stubFetch({ [RAW]: () => new Response(gz) });
-    expect(new Uint8Array(await fetchLog(new URL(RAW)))).toEqual(gz);
+    expect(sameBytes(await fetchLog(new URL(RAW)), gz)).toBe(true);
     expect(asked).toEqual([RAW]);
   });
 
