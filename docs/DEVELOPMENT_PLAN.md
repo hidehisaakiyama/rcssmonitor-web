@@ -419,6 +419,16 @@ interface FieldRenderer {
 - `view` と `server` では、上の規則どおりに描き分ける (単体テストと E2E テスト)。
 - 左右のゴールまわり (ネット、広告板、看板) が、チームの色とチーム名に従う (E2E テスト)。方位の帯の印の位置と、ミニマップの座標の変換が正しい (単体テスト)。
 
+### プレリリース 20.0.0-beta.2 (Phase 6 の後)
+
+Phase 6 の 3D 表示を、正式版の前にベータとして試してもらう (2026-11-11 にユーザが決めた)。
+
+**作業**
+- `feature/3d-view` を develop に取り込み、develop で版を `20.0.0-beta.2` に上げ、リリースノート (`docs/release-notes/v20.0.0-beta.2.md`) を書き、README と `docs/parity.md` を直す。
+- develop を main に取り込み、main でタグ `v20.0.0-beta.2` を付けて push する (`docs/release.md`)。リリースのワークフローは、Ubuntu 26.04 と Node.js 24 のアクション (区切り 16) で初めて動く。
+
+**完了条件**: タグ `v20.0.0-beta.2` の Pre-release に単一 HTML と dist の zip が添付され、Pages が公開される。添付の単一 HTML と Pages で、ログの再生と 3D 表示を確かめる。
+
 ### 将来の拡張 (rcssmonitor にない機能。初回の正式リリース 20.0.0 の対象外)
 
 - ドラッグで選手を移動する (`(dispplayer SIDE UNUM X Y ANG)`。ANG は 16 倍せず整数の度で送る)。
@@ -652,7 +662,7 @@ asio 版サーバで見つかった問題 (サーバ側で対応を検討する)
 - ブランチの方針 (§2) を決め、main から `develop` を切った。Phase 6 は develop から切った `feature/3d-view` で進める。
 - rcssserver で、ボールが空中を飛ぶ 2.5 次元シミュレータが計画されている。これに備えて、Phase 6 にボールの高さの受け入れ (`ball.z` / `ball.vz`、影、ゴールの高さ、高さで揺れないカメラ) を加えた (§4.2、§5)。形式が決まるまで決められないものは、将来の拡張に挙げた。
 
-### Phase 6 (作業中)
+### Phase 6 (2026-11-10〜11-11)
 
 **区切り 1: 3D の描画の土台 (2026-11-10)**
 - 2D と 3D を、View > 3D View、ツールバーの「3D」ボタン、キー D で切り替える (rcssmonitor にない機能。キーは rcssmonitor で使われていない D にした)。選んだほうは設定 `view_3d` として保存する。
@@ -839,3 +849,12 @@ asio 版サーバで見つかった問題 (サーバ側で対応を検討する)
 **区切り 16: CI の警告 (2026-11-11)**
 - Node.js 20 の廃止: `actions/upload-artifact@v4` と、リリースの `actions/download-artifact@v4` は Node.js 20 で動き、Node.js 24 で強制的に動かされていた。Node.js 24 で動く版に上げた (`upload-artifact@v7`、`download-artifact@v8`)。v7 で増えた「zip にしない」設定は既定で切れていて、v8 の変更 (ハッシュの不一致で失敗、zip でないものは展開しない) は、名前で取り出す使い方に影響しない。checkout@v5、setup-node@v5、upload-pages-artifact@v5 (中で upload-artifact v7)、deploy-pages@v5 は、すでに Node.js 24。
 - `ubuntu-latest` は 2026-10-19 から 11-19 にかけて Ubuntu 24.04 から 26.04 に移るので、そのあいだは CI の環境がどちらになるか決まらない。`ubuntu-26.04` を名指しにした。区切り 14 の CI は ubuntu-latest として 26.04 で動き、通っていた。リリースのワークフローは、次のリリースで確かめる。
+
+**完了条件の確認** (2026-11-11 にユーザが Phase 6 を完了とした)
+- 1920×1080 で 60 fps: Firefox (デスクトップの GPU、全試合のログを再生) で、人型、重ね描きのすべて、影、景色、ボールの円と軌跡を出しても約 60 fps (区切り 13〜15 の計測)。
+- 2D と 3D を切り替えても、フレームと選手の選択が保たれる (E2E テスト「switches between 2D and 3D, keeping the frame and the selection」)。
+- `ball.z` のある show: 中心の高さと影の濃さの単体テスト、擬似サーバの show で高さ 3 m のボールを空中に描き、影を地面に出す E2E テスト (「draws the ball at its height, with its shadow on the ground」)。
+- 選手視点のカメラ: 4 つの項目のすべての組み合わせと、最初のカメラを選べる (E2E テスト「chooses the player camera styles in the preference dialog」)。`smooth` が角速度の上限を超えない (単体テスト)。既定は、ユーザが実際の試合で比べて決めた (区切り 3 の後)。`view` と `server` の描き分け (単体テストと E2E テスト「draws only what the player camera's player perceives」)。
+- 左右のゴールまわりがチームの色とチーム名に従う (E2E テスト「paints the ends in the team colors and shows the compass and the minimap」)。方位の帯の印の位置とミニマップの座標の変換 (単体テスト)。
+- feature/3d-view を develop に取り込んだ状態で、単体テスト 257 件と E2E テスト 120 件 (Chromium と Firefox) が通った。全体の E2E テストを 4 回流したうち 1 回、審判操作のテスト (「sends the referee commands aimed in 3D」) が落ちた (単独では 16 回とも通った)。負荷が高いときの時間の問題と見ている。
+- 3D 表示は、プレリリース 20.0.0-beta.2 に入れる。

@@ -1,6 +1,6 @@
 {
   "name": "rcssmonitor-web",
-  "version": "20.0.0-beta.1",
+  "version": "20.0.0-beta.2",
   "private": true,
   "description": "Browser-based monitor for the RoboCup Soccer Simulator 2D server",
   "license": "GPL-3.0-or-later",
