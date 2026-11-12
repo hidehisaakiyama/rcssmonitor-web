@@ -121,7 +121,8 @@ export class Sky {
       fog: false,
     });
     this.mesh = new Mesh(new SphereGeometry(SKY.radius, 32, 16), this.material);
-    this.mesh.renderOrder = -1;
+    // First of all, under the ground (render3d.ts, the ground).
+    this.mesh.renderOrder = -3;
     this.mesh.frustumCulled = false;
   }
 

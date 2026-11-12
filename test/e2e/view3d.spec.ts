@@ -200,6 +200,52 @@ const SIGHT = [
   '',
 ].join('\n');
 
+test('layers the ground by the drawing order, not by depth', async ({ page }) => {
+  // Layered by depth, 2 cm apart, the plain green beyond the field came
+  // through it on a GPU with less depth precision (an integrated Radeon on
+  // Windows). The sky, the green beyond and the field are drawn first, in
+  // this order, without writing depth; everything else comes after them.
+  await openApp(page, '?view_3d=on&sky_3d=on');
+  await loadLog(page, 'json-sample.rcg.gz');
+  await wait3d(page);
+  const meshes = await hook(page, (h) => {
+    type Obj = {
+      isMesh?: boolean;
+      renderOrder: number;
+      material: { depthWrite: boolean; map?: unknown };
+      geometry: { parameters?: { width?: number } };
+    };
+    const r = h.field.renderer as unknown as {
+      scene: { traverse(f: (o: Obj) => void): void };
+      fieldTexture: unknown;
+      sky: { mesh: unknown };
+    };
+    const out: { role: string; order: number; depthWrite: boolean }[] = [];
+    r.scene.traverse((o) => {
+      if (!o.isMesh) {
+        return;
+      }
+      const role =
+        o === r.sky.mesh
+          ? 'sky'
+          : o.material.map === r.fieldTexture
+            ? 'field'
+            : (o.geometry.parameters?.width ?? 0) > 1000
+              ? 'beyond'
+              : 'other';
+      out.push({ role, order: o.renderOrder, depthWrite: o.material.depthWrite });
+    });
+    return out;
+  });
+  const ground = (role: string) => meshes.filter((m) => m.role === role);
+  expect(ground('sky')).toEqual([{ role: 'sky', order: -3, depthWrite: false }]);
+  expect(ground('beyond')).toEqual([{ role: 'beyond', order: -2, depthWrite: false }]);
+  expect(ground('field')).toEqual([{ role: 'field', order: -1, depthWrite: false }]);
+  const others = ground('other');
+  expect(others.length).toBeGreaterThan(10);
+  expect(Math.min(...others.map((m) => m.order))).toBeGreaterThanOrEqual(0);
+});
+
 test('switches between 2D and 3D, keeping the frame and the selection', async ({ page }) => {
   await openApp(page);
   await loadLog(page, 'json-sample.rcg.gz');

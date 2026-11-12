@@ -459,22 +459,30 @@ export class Render3D implements FieldRenderer {
     this.scene.add(this.sun, this.sun.target);
 
     // The ground: the field texture over the margin, plain green beyond.
+    // They are layered by the order they are drawn in, after the sky and
+    // before everything else, without writing depth: by depth, 2 cm apart,
+    // the plain green came through the field in patches that flickered as
+    // the camera moved, or covered it all, on a GPU with less depth
+    // precision (an integrated Radeon on Windows). Nothing is under the
+    // ground to be hidden by it.
     this.fieldTexture = this.track(new CanvasTexture(this.fieldCanvas));
     this.fieldTexture.colorSpace = SRGBColorSpace;
     this.fieldTexture.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
     const ground = new Mesh(
       this.track(new PlaneGeometry(TEXTURE_AREA.length, TEXTURE_AREA.width)),
-      this.track(new MeshBasicMaterial({ map: this.fieldTexture })),
+      this.track(new MeshBasicMaterial({ map: this.fieldTexture, depthWrite: false })),
     );
     ground.rotation.x = -Math.PI / 2;
+    ground.renderOrder = -1;
     this.scene.add(ground);
     const outside = new Mesh(
       // To where the haze hides it, with the sky.
       this.track(new PlaneGeometry(2 * FAR_GROUND, 2 * FAR_GROUND)),
-      this.track(new MeshBasicMaterial({ color: '#1a8a1a' })),
+      this.track(new MeshBasicMaterial({ color: '#1a8a1a', depthWrite: false })),
     );
     outside.rotation.x = -Math.PI / 2;
     outside.position.y = -0.02;
+    outside.renderOrder = -2;
     this.scene.add(outside);
     // The shadows only, over the ground and under the circles of the players.
     this.shadowGround = new Mesh(
