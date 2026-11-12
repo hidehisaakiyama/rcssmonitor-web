@@ -966,6 +966,13 @@ asio 版サーバで見つかった問題 (サーバ側で対応を検討する)
 - ユーザが、報告のあった Windows 機で、ちらつきとラインの消失が直ったことを確かめた。
 - main から切った `hotfix/ground-flicker` で直し (`719e6f5`)、そこで版を 20.0.0-beta.4 に上げた (`6f4517e`)。PR #6 で main に取り込み (`226ec42`)、main を develop に取り込んだ。計画書は develop だけで書いた (hotfix にも書くと、develop の beta.3 の節と同じ末尾への追記になり、develop への取り込みで衝突するため。keepaway の hotfix と同じ形)。
 
+### プレリリース 20.0.0-beta.4 (2026-11-12)
+
+**完了条件の確認**
+- hotfix/ground-flicker を main に取り込み (PR #6、取り込みのコミット `226ec42`)、ユーザがタグ `v20.0.0-beta.4` を付けて push した。Release ワークフローが成功した。main は develop にも取り込んだ (`2717f42`)。
+- リリースは Pre-release の印付きで公開され、単一 HTML (`rcssmonitor-web-v20.0.0-beta.4.html`、1.39 MB) と dist の zip (386 kB) が添付された。本文は `docs/release-notes/v20.0.0-beta.4.md` から入った。
+- ユーザが確かめた: リリースのページ、About の版、内蔵 GPU の Windows 機での 3D 表示の地面。
+
 ### 再生中に再生ボタンが効かない (2026-11-12)
 
 - ユーザの報告: 再生中に再生 / 停止のボタンをクリックしても止まらない。Space キーでは止まる。止めた後のボタンで再生は始まり、再生中はまた効かなくなる。
