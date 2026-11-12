@@ -29,6 +29,30 @@ test('plays and stops with Space and the play button', async ({ page }) => {
   await expect(playButton(page)).toHaveAttribute('aria-pressed', 'false');
 });
 
+test('stops with the play button pressed as long as a person does', async ({ page }) => {
+  // A person holds the button for a tenth of a second or so, while several
+  // frames go by. The tool bar used to redraw the button's icon at every
+  // frame, so the press and the release were on different elements and
+  // the browser made no click of them.
+  await openApp(page);
+  await loadLog(page, 'json-sample.rcg.gz');
+  const box = await playButton(page).boundingBox();
+  if (!box) {
+    throw new Error('the play button is not shown');
+  }
+  const press = async () => {
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.waitForTimeout(150);
+    await page.mouse.up();
+  };
+  await press();
+  await expect(playButton(page)).toHaveAttribute('aria-pressed', 'true');
+  await expect(label(page)).not.toHaveText('1 (1 / 267)');
+  await press();
+  await expect(playButton(page)).toHaveAttribute('aria-pressed', 'false');
+});
+
 test('changes the speed while playing', async ({ page }) => {
   await openApp(page);
   await loadLog(page, 'json-sample.rcg.gz');

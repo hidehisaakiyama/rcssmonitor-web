@@ -54,6 +54,8 @@ export function cycleLabel(frame: Frame): string {
 export class Toolbar {
   readonly element: HTMLElement;
   private readonly buttons = new Map<string, HTMLButtonElement>();
+  /** Whether the play button shows the stop icon. */
+  private showsStop = false;
   private readonly slider: HTMLInputElement;
   private readonly frameLabel: HTMLSpanElement;
   private readonly cycleInput: HTMLInputElement;
@@ -195,9 +197,13 @@ export class Toolbar {
     this.slider.value = String(s.index);
 
     const play = this.buttons.get('play');
-    if (play) {
+    play?.setAttribute('aria-pressed', String(s.playing));
+    if (play && s.playing !== this.showsStop) {
+      // The icon only when it changes: this runs at every frame while
+      // playing, and a new icon between the press and the release of the
+      // mouse button takes the click away (the press was on the old one).
+      this.showsStop = s.playing;
       play.innerHTML = s.playing ? ICONS.stop : ICONS.play;
-      play.setAttribute('aria-pressed', String(s.playing));
     }
     this.buttons.get('loop')?.setAttribute('aria-pressed', String(s.loop));
     this.buttons.get('live')?.setAttribute('aria-pressed', String(s.live));
