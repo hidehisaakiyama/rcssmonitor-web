@@ -1,5 +1,5 @@
 // What the selected player perceives, for the player camera of the 3D view
-// (DEVELOPMENT_PLAN.md, Phase 6):
+// (docs/plan/2026-11-07-00_development.md, Phase 6):
 //
 // - `view`: what is inside the view cone (the view width around the face
 //   direction, body + neck).

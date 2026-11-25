@@ -74,7 +74,7 @@ npm run replay-server -- test/fixtures/json-sample.rcg.gz  # a stand-in server o
 
 The replay server plays a game log to monitors as rcssserver does with `server::ws_port`, and prints the commands it receives. See [tools/replay-server/README.md](tools/replay-server/README.md).
 
-See [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md) (Japanese) for the plan, [docs/protocol.md](docs/protocol.md) for the protocol notes, [docs/parity.md](docs/parity.md) for the feature comparison with rcssmonitor, and [docs/release.md](docs/release.md) for making a release.
+See [docs/plan/](docs/plan/) (Japanese) for the plans, starting with [docs/plan/2026-11-07-00_development.md](docs/plan/2026-11-07-00_development.md), [docs/todo.md](docs/todo.md) (Japanese) for the work left for later, [docs/protocol.md](docs/protocol.md) for the protocol notes, [docs/parity.md](docs/parity.md) for the feature comparison with rcssmonitor, and [docs/release.md](docs/release.md) for making a release.
 
 ## License
 

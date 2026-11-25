@@ -1,6 +1,7 @@
-// The surroundings of the pitch in the team colors (DEVELOPMENT_PLAN.md,
-// Phase 6), so that the two ends can be told apart, above all from the
-// player camera. Each can be hidden (the 3D tab of the preference dialog):
+// The surroundings of the pitch in the team colors
+// (docs/plan/2026-11-07-00_development.md, Phase 6), so that the two ends can
+// be told apart, above all from the player camera. Each can be hidden (the 3D
+// tab of the preference dialog):
 // - boards around the pitch (scene-math.ts BOARDS); along the touch lines
 //   they change color at the halfway line;
 // - a banner floating high behind each goal (BANNER), with the team name and

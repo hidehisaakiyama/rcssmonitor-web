@@ -1,5 +1,6 @@
-// The compass and the minimap over the 3D view (DEVELOPMENT_PLAN.md,
-// Phase 6), optional, to tell which way the camera looks:
+// The compass and the minimap over the 3D view
+// (docs/plan/2026-11-07-00_development.md, Phase 6), optional, to tell which
+// way the camera looks:
 // - The compass: a strip at the top with the 360 degrees around the camera
 //   direction, the directions of the goals (L, R, in the team colors) and of
 //   the ball, and the camera's horizontal field of view brighter. Angles are
