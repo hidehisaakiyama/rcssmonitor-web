@@ -31,9 +31,9 @@
 | — | 3D の地面のちらつき (hotfix、PR #6) (§9) | 完了 | 済み | 通過 | `719e6f5` | 済み |
 | beta.4 | プレリリース 20.0.0-beta.4 (PR #6) (§5、§9) | 完了 | 済み | 通過 | `6f4517e` | 済み |
 | — | 再生中に再生ボタンが効かない (§9。次の版で出す) | 完了 | 済み | 通過 | `a5d1605` | 済み |
-| — | 計画書を `docs/plan/` へ移し、TODO を `docs/todo.md` に分ける (§9) | 作業中 | 未 | 未 | — | 未 |
+| — | 計画書を `docs/plan/` へ移し、TODO を `docs/todo.md` に分ける (§9) | 完了 | 済み | 通過 | PR #7 (Squash Merge) | 済み |
 | 20.0.0 | 正式リリース 20.0.0 (§5) | 未着手 | 未 | — | — | — |
-| 取り込み | develop への取り込み: `feature/3d-view` は手元でマージ (`a7c21c6`)、`feature/open-url` は PR #4 (マージコミット)、hotfix は main から取り込み (`0fa7f27`、`2717f42`)。`docs/plan-reorg` は PR (Squash Merge の予定) | 作業中 | — | — | — | — |
+| 取り込み | develop への取り込み: `feature/3d-view` は手元でマージ (`a7c21c6`)、`feature/open-url` は PR #4 (マージコミット)、hotfix は main から取り込み (`0fa7f27`、`2717f42`)。`docs/plan-reorg` は PR #7 (Squash Merge) | 作業中 | — | — | — | — |
 
 ## 1. 背景と目的
 
@@ -1015,4 +1015,6 @@ asio 版サーバで見つかった問題 (サーバ側で対応を検討する)
 - 本書は未完了の計画書なので、規則に従い、冒頭の表に最終更新日、ブランチ、状態、関連を足し、「進み具合」の表を加えた。章の構成と節の番号は変えていない。
 - 見送った作業、後回しにした確認、将来の拡張を `docs/todo.md` にまとめた。§5 の「将来の拡張」はそのまま残す。今後新しく見送る作業は `docs/todo.md` に書く。
 - 本書を指していた README、`playwright.config.ts`、ソースのコメント 5 か所 (`src/view/render3d/` の sight.ts、figures/figures.ts、player-camera.ts、stadium.ts と `src/view/hud/guides.ts`)、§4.1 のディレクトリ構成を、新しいパスに直した。§8 の「本書を `docs/DEVELOPMENT_PLAN.md` として置く」は、行ったことの記録なのでそのままにした。
-- この後: PR で develop に取り込む。次の版で、再生ボタンの直し (`a5d1605`) を出す。
+- 確かめたこと: 手元で lint、型検査、変更したファイルの整形が通った。`docs/*` のブランチは push の CI の対象外 (`.github/workflows/ci.yml` は main、develop、`feature/**`、`hotfix/**` だけ) なので、PR #7 の CI で確かめた。単体テスト 278 件と E2E テスト 138 件が通った (全長ログの単体テスト 2 件と E2E テスト 4 件は飛ばされた)。
+- PR #7 を Squash Merge で develop に取り込む。
+- この後: 次の版で、再生ボタンの直し (`a5d1605`) を出す。
