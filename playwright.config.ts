@@ -6,9 +6,10 @@ import { defineConfig, devices } from '@playwright/test';
 // Headless Firefox draws WebGL with the machine's GPU, headless Chromium in
 // software. Many Firefox at once on the GPU, beside the desktop's own use,
 // ran into a GPU reset that took down the desktop session
-// (DEVELOPMENT_PLAN.md §9, Phase 6). Firefox gets Mesa's software rendering
-// here too (LIBGL_ALWAYS_SOFTWARE), as on the CI's virtual display. To
-// measure the frame rate on the GPU, run a browser outside the tests.
+// (docs/plan/2026-11-07-00_development.md §9, Phase 6). Firefox gets Mesa's
+// software rendering here too (LIBGL_ALWAYS_SOFTWARE), as on the CI's virtual
+// display. To measure the frame rate on the GPU, run a browser outside the
+// tests.
 const softwareGl: Record<string, string> = {
   ...Object.fromEntries(
     Object.entries(process.env).filter((e): e is [string, string] => e[1] !== undefined),

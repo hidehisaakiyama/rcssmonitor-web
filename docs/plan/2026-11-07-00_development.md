@@ -3,9 +3,37 @@
 | 項目 | 内容 |
 |---|---|
 | 作成日 | 2026-11-07 |
+| 最終更新日 | 2026-11-25 |
 | 対象 | 新規プロジェクト rcssmonitor-web (`/home/akiyama/work/src/rcsoccersim/rcssmonitor-web`, GitHub では `rcsoccersim/rcssmonitor-web` を想定) |
+| ブランチ | Phase 0〜5 とプレリリース 20.0.0-beta.1 は `main` で行った。その後は `develop` に開発を集め、機能は `develop` から切った `feature/*`、リリース済みの版の急ぎの修正は `main` から切った `hotfix/*` で行う (§2) |
+| 状態 | Phase 0〜6、URL を指定してログを開く機能、プレリリース 20.0.0-beta.1〜beta.4 は完了した。正式リリース 20.0.0 は未着手 (「進み具合」の表) |
+| 関連 | `docs/todo.md` (見送った作業と将来の拡張)、`docs/protocol.md`、`docs/parity.md`、`docs/release.md` |
 | 参照したソース | rcssmonitor (feature/support-tcp-ws), `rcssserver-19.x-asio/` (asio 版 rcssserver 19.x の作業ツリー) |
 | ライセンス | GPL-3.0-or-later (rcssmonitor の描画・rcg 解析ロジックを移植するため) |
+
+## 進み具合
+
+| 段階 | 内容 | 状態 | ユーザの確認 | CI | コミット | プッシュ |
+|---|---|---|---|---|---|---|
+| Phase 0 | 基盤と制約の検証 (§5 Phase 0) | 完了 | 済み | 通過 | `3aeabcf` | 済み |
+| Phase 1 | データモデルとログ読み込み (§5 Phase 1、§9 Phase 1) | 完了 | 済み | 通過 | `b76a90d` | 済み |
+| Phase 2 | 2D 描画 (§5 Phase 2、§9 Phase 2) | 完了 | 済み | 通過 | `4088df7` | 済み |
+| Phase 3 | ログプレイヤー (§5 Phase 3、§9 Phase 3) | 完了 | 済み | 通過 | `351af0a` | 済み |
+| Phase 4 | ライブ接続と審判操作 (§5 Phase 4、§9 Phase 4) | 完了 | 済み | 通過 | `efda749` | 済み |
+| Phase 5 | 設定・ダイアログ・リリースの準備 (§5 Phase 5、§9 Phase 5) | 完了 | 済み | 通過 | `403d976` | 済み |
+| beta.1 | プレリリース 20.0.0-beta.1 (§5、§9) | 完了 | 済み | 通過 | `0cd6410` | 済み |
+| — | ブランチの方針 (`develop` と `feature/*`) (§2、§9 beta.1) | 完了 | 済み | 通過 | `0016585` | 済み |
+| — | keepaway の領域の直し (hotfix、PR #1) (§9 Phase 6 区切り 1) | 完了 | 済み | 通過 | `3101d39` | 済み |
+| Phase 6 | 3D 表示 (§5 Phase 6、§9 Phase 6 区切り 1〜16) | 完了 | 済み | 通過 | `3265446`〜`8d3dd45` | 済み |
+| beta.2 | プレリリース 20.0.0-beta.2 (PR #2、#3) (§5、§9) | 完了 | 済み | 通過 | `c01009a`、`861a2c1` | 済み |
+| URL | URL を指定してログを開く (PR #4) (§5、§9) | 完了 | 済み | 通過 | `048be76`、`819f569`、`bddd58d` | 済み |
+| beta.3 | プレリリース 20.0.0-beta.3 (PR #5) (§5、§9) | 完了 | 済み | 通過 | `9b066be` | 済み |
+| — | 3D の地面のちらつき (hotfix、PR #6) (§9) | 完了 | 済み | 通過 | `719e6f5` | 済み |
+| beta.4 | プレリリース 20.0.0-beta.4 (PR #6) (§5、§9) | 完了 | 済み | 通過 | `6f4517e` | 済み |
+| — | 再生中に再生ボタンが効かない (§9。次の版で出す) | 完了 | 済み | 通過 | `a5d1605` | 済み |
+| — | 計画書を `docs/plan/` へ移し、TODO を `docs/todo.md` に分ける (§9) | 完了 | 済み | 通過 | PR #7 (Squash Merge) | 済み |
+| 20.0.0 | 正式リリース 20.0.0 (§5) | 未着手 | 未 | — | — | — |
+| 取り込み | develop への取り込み: `feature/3d-view` は手元でマージ (`a7c21c6`)、`feature/open-url` は PR #4 (マージコミット)、hotfix は main から取り込み (`0fa7f27`、`2717f42`)。`docs/plan-reorg` は PR #7 (Squash Merge) | 作業中 | — | — | — | — |
 
 ## 1. 背景と目的
 
@@ -110,7 +138,7 @@ rcssmonitor-web/
     options/              設定項目の定義、localStorage への保存、URL パラメータ
   tools/replay-server/    開発・CI 用の擬似サーバ (Node + ws)。rcg をライブの JSON プロトコルで流す
   test/unit, test/e2e, test/fixtures
-  docs/DEVELOPMENT_PLAN.md (本書), docs/protocol.md, docs/parity.md
+  docs/plan/ (計画書。本書を含む), docs/todo.md, docs/protocol.md, docs/parity.md
 ```
 
 **依存の規則**: `core/` と `io/` は DOM や Canvas を参照しない。ESLint の import 制限で強制する。こうしておくと、パーサを Worker、擬似サーバ、単体テストで共有できる。
@@ -980,3 +1008,13 @@ asio 版サーバで見つかった問題 (サーバ側で対応を検討する)
 - 直し: アイコンは、再生と停止が切り替わったときだけ書き換える。`aria-pressed` は子要素を作り直さないので、今までどおり毎回設定する。ほかに、毎フレーム要素を作り直す所はなかった。
 - 試験: E2E テスト (ボタンを 0.15 秒押してから離して、再生と停止ができること。直す前の作りでは Chromium と Firefox の両方で落ちることを確かめた)。単体テスト 280 件と E2E テスト 142 件が通った。
 - beta.4 はタグを付けた後だったので、develop に入れて次の版で出す (ユーザが決めた)。
+
+### 計画書の置き場所と TODO (2026-11-25)
+
+- CLAUDE.md の計画書の規則を整理したのに合わせて、本書を `docs/DEVELOPMENT_PLAN.md` から `docs/plan/2026-11-07-00_development.md` へ移した (ブランチ `docs/plan-reorg`)。この作業はファイルの移動とリンクの修正だけなので、別の計画書は作らなかった (ユーザが決めた)。
+- 本書は未完了の計画書なので、規則に従い、冒頭の表に最終更新日、ブランチ、状態、関連を足し、「進み具合」の表を加えた。章の構成と節の番号は変えていない。
+- 見送った作業、後回しにした確認、将来の拡張を `docs/todo.md` にまとめた。§5 の「将来の拡張」はそのまま残す。今後新しく見送る作業は `docs/todo.md` に書く。
+- 本書を指していた README、`playwright.config.ts`、ソースのコメント 5 か所 (`src/view/render3d/` の sight.ts、figures/figures.ts、player-camera.ts、stadium.ts と `src/view/hud/guides.ts`)、§4.1 のディレクトリ構成を、新しいパスに直した。§8 の「本書を `docs/DEVELOPMENT_PLAN.md` として置く」は、行ったことの記録なのでそのままにした。
+- 確かめたこと: 手元で lint、型検査、変更したファイルの整形が通った。`docs/*` のブランチは push の CI の対象外 (`.github/workflows/ci.yml` は main、develop、`feature/**`、`hotfix/**` だけ) なので、PR #7 の CI で確かめた。単体テスト 278 件と E2E テスト 138 件が通った (全長ログの単体テスト 2 件と E2E テスト 4 件は飛ばされた)。
+- PR #7 を Squash Merge で develop に取り込む。
+- この後: 次の版で、再生ボタンの直し (`a5d1605`) を出す。

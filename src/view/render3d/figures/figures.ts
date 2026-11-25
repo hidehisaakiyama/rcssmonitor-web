@@ -1,7 +1,8 @@
-// The players as human figures in the 3D view (DEVELOPMENT_PLAN.md,
-// Phase 6), set by player_model_3d: the cylinders and spheres of
-// render3d.ts (simple), or Quaternius' rigged Mannequin with its animations
-// (figure, gltf.ts). Of the prototypes compared, the user chose this one.
+// The players as human figures in the 3D view
+// (docs/plan/2026-11-07-00_development.md, Phase 6), set by player_model_3d:
+// the cylinders and spheres of render3d.ts (simple), or Quaternius' rigged
+// Mannequin with its animations (figure, gltf.ts). Of the prototypes
+// compared, the user chose this one.
 //
 // What the figures do comes from the log alone, the frame drawn and the
 // fraction to the next one, so that a paused, stepped or rewound view shows

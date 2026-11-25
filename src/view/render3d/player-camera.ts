@@ -1,10 +1,11 @@
-// The selected player's camera of the 3D view (DEVELOPMENT_PLAN.md,
-// Phase 6): where it stands, which direction it follows, how it turns and
-// how wide it sees. Every combination can be chosen. The defaults were
-// chosen by watching games: over the shoulder, turning smoothly toward the
-// face (body + neck), a fixed field of view of 120 degrees, and drawing what
-// the server tells the player. The first, plain camera (the eyes, following
-// the face at once, as wide as the view, drawing everything) is still there.
+// The selected player's camera of the 3D view
+// (docs/plan/2026-11-07-00_development.md, Phase 6): where it stands, which
+// direction it follows, how it turns and how wide it sees. Every combination
+// can be chosen. The defaults were chosen by watching games: over the
+// shoulder, turning smoothly toward the face (body + neck), a fixed field of
+// view of 120 degrees, and drawing what the server tells the player. The
+// first, plain camera (the eyes, following the face at once, as wide as the
+// view, drawing everything) is still there.
 //
 // A player turns its neck up to 180 degrees a cycle to look around, so the
 // plain camera may swing 1800 degrees a second; `smooth` turns toward the
